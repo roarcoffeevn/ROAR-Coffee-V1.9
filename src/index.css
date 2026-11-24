@@ -1,0 +1,300 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-roar-green: #00552B;
+  --color-roar-deep: #003D25;
+  --color-roar-ivory: #F8F5EF;
+  --color-roar-charcoal: #202020;
+  --color-roar-gold: #C6A667;
+  --color-roar-obsidian: #111111;
+
+  --font-display: "Be Vietnam Pro", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: "Be Vietnam Pro", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Be Vietnam Pro", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html, body {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+    background-color: #F8F5EF;
+    color: #202020;
+  }
+
+  html.dark, html.dark body {
+    background-color: #0E1512;
+    color: #F1EFEA;
+  }
+
+  h1, h2, h3, h4, .font-editorial {
+    font-family: var(--font-display);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes heroProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes loaderSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-hero-progress {
+  transform-origin: left center;
+  animation: heroProgress 6.5s linear forwards;
+}
+
+.animate-loader-sweep {
+  animation: loaderSweep 1.2s ease-in-out infinite;
+}
+
+@keyframes metricsMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-metrics-marquee {
+  display: flex;
+  width: max-content;
+  animation: metricsMarquee 32s linear infinite;
+}
+
+.animate-metrics-marquee:hover {
+  animation-play-state: paused;
+}
+
+@keyframes bbPlacePop {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.7;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bbCellBlast {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: brightness(1.65);
+  }
+  35% {
+    transform: scale(1.12);
+    opacity: 1;
+    filter: brightness(2);
+  }
+  100% {
+    transform: scale(0.15);
+    opacity: 0;
+    filter: brightness(1.4);
+  }
+}
+
+@keyframes bbRowSweep {
+  0% {
+    transform: scaleX(0.1) scaleY(1.25);
+    opacity: 0.95;
+  }
+  45% {
+    transform: scaleX(1.04) scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1.08) scaleY(0.15);
+    opacity: 0;
+  }
+}
+
+@keyframes bbColSweep {
+  0% {
+    transform: scaleY(0.1) scaleX(1.25);
+    opacity: 0.95;
+  }
+  45% {
+    transform: scaleY(1.04) scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1.08) scaleX(0.15);
+    opacity: 0;
+  }
+}
+
+@keyframes bbShardFly {
+  0% {
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate3d(var(--tx, 0px), var(--ty, 0px), 0) rotate(var(--rot, 160deg)) scale(0.15);
+    opacity: 0;
+  }
+}
+
+@keyframes bbFloatScore {
+  0% {
+    transform: translate(-50%, -40%) scale(0.65);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, -75%) scale(1.12);
+    opacity: 1;
+  }
+  75% {
+    transform: translate(-50%, -145%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -190%) scale(0.92);
+    opacity: 0;
+  }
+}
+
+@keyframes bbBannerPop {
+  0% {
+    transform: translate(-50%, 10px) scale(0.45);
+    opacity: 0;
+  }
+  22% {
+    transform: translate(-50%, -4px) scale(1.14);
+    opacity: 1;
+  }
+  38% {
+    transform: translate(-50%, 0px) scale(1);
+    opacity: 1;
+  }
+  82% {
+    transform: translate(-50%, -8px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -22px) scale(0.9);
+    opacity: 0;
+  }
+}
+
+@keyframes bbBoardShakeLight {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25% { transform: translate3d(-2px, 2px, 0); }
+  50% { transform: translate3d(2px, -2px, 0); }
+  75% { transform: translate3d(-1px, -1px, 0); }
+}
+
+@keyframes bbBoardShakeHeavy {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  20% { transform: translate3d(-4px, 3px, 0) rotate(-0.6deg); }
+  40% { transform: translate3d(4px, -3px, 0) rotate(0.6deg); }
+  60% { transform: translate3d(-3px, -2px, 0) rotate(-0.4deg); }
+  80% { transform: translate3d(2px, 2px, 0) rotate(0.3deg); }
+}
+
+@keyframes bbTrayDeal {
+  0% {
+    transform: scale(0.55) translateY(8px);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.06) translateY(-1px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-bb-place {
+  animation: bbPlacePop 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-bb-blast {
+  animation: bbCellBlast 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-bb-row-sweep {
+  transform-origin: center center;
+  animation: bbRowSweep 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bb-col-sweep {
+  transform-origin: center center;
+  animation: bbColSweep 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bb-shard {
+  animation: bbShardFly 480ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bb-float-score {
+  animation: bbFloatScore 880ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bb-banner {
+  animation: bbBannerPop 1150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bb-shake-light {
+  animation: bbBoardShakeLight 220ms ease-out;
+}
+
+.animate-bb-shake-heavy {
+  animation: bbBoardShakeHeavy 300ms ease-out;
+}
+
+.animate-bb-tray-deal {
+  animation: bbTrayDeal 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
