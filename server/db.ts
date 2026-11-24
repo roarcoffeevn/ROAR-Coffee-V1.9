@@ -129,6 +129,11 @@ export function initDatabase(): void {
       order_status TEXT NOT NULL DEFAULT 'Pending' CHECK(order_status IN ('Pending', 'Confirmed', 'Processing', 'Shipping', 'Completed', 'Cancelled', 'Returned')),
       tracking_code TEXT DEFAULT '',
       notes TEXT DEFAULT '',
+      require_invoice INTEGER NOT NULL DEFAULT 0,
+      invoice_company_name TEXT DEFAULT '',
+      invoice_tax_id TEXT DEFAULT '',
+      invoice_company_address TEXT DEFAULT '',
+      invoice_email TEXT DEFAULT '',
       points_awarded INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -435,6 +440,71 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_game_rewards_key ON game_rewards(game_key, slot_order);
     CREATE INDEX IF NOT EXISTS idx_game_plays_user_date ON game_plays(user_id, game_key, play_date);
     CREATE INDEX IF NOT EXISTS idx_game_claims_user ON game_reward_claims(user_id, status);
+
+    CREATE TABLE IF NOT EXISTS cubeaway_profiles (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      avatar_badge TEXT NOT NULL DEFAULT 'lion',
+      xp INTEGER NOT NULL DEFAULT 0,
+      level INTEGER NOT NULL DEFAULT 1,
+      coins INTEGER NOT NULL DEFAULT 120,
+      current_level INTEGER NOT NULL DEFAULT 1,
+      max_level INTEGER NOT NULL DEFAULT 1,
+      total_score INTEGER NOT NULL DEFAULT 0,
+      levels_cleared INTEGER NOT NULL DEFAULT 0,
+      daily_cleared_count INTEGER NOT NULL DEFAULT 0,
+      last_daily_date TEXT NOT NULL DEFAULT '',
+      active_skin TEXT NOT NULL DEFAULT 'arcade',
+      unlocked_skins_json TEXT NOT NULL DEFAULT '["arcade"]',
+      active_backdrop TEXT NOT NULL DEFAULT 'indigo_studio',
+      unlocked_backdrops_json TEXT NOT NULL DEFAULT '["indigo_studio"]',
+      upgrades_json TEXT NOT NULL DEFAULT '{"radar":0,"thruster":0,"shield":0,"arsenal":0}',
+      tool_hammer INTEGER NOT NULL DEFAULT 2,
+      tool_shuffle INTEGER NOT NULL DEFAULT 2,
+      tool_hint INTEGER NOT NULL DEFAULT 3,
+      streak_days INTEGER NOT NULL DEFAULT 0,
+      last_login_date TEXT NOT NULL DEFAULT '',
+      streak_claimed_days_json TEXT NOT NULL DEFAULT '[]',
+      event_cleared_stages_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS cubeaway_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mode TEXT NOT NULL CHECK(mode IN ('campaign', 'daily', 'event')),
+      stage_key TEXT NOT NULL,
+      score INTEGER NOT NULL DEFAULT 0,
+      moves_used INTEGER NOT NULL DEFAULT 0,
+      time_ms INTEGER NOT NULL DEFAULT 0,
+      stars INTEGER NOT NULL DEFAULT 3,
+      play_date TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS cubeaway_friendships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_a INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_b INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_a, user_b)
+    );
+
+    CREATE TABLE IF NOT EXISTS cubeaway_friend_gifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      gift_date TEXT NOT NULL,
+      coins_amount INTEGER NOT NULL DEFAULT 15,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(sender_id, receiver_id, gift_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cubeaway_scores_mode_date ON cubeaway_scores(mode, play_date, score DESC);
+    CREATE INDEX IF NOT EXISTS idx_cubeaway_profiles_score ON cubeaway_profiles(total_score DESC, max_level DESC);
+    CREATE INDEX IF NOT EXISTS idx_cubeaway_friends_pair ON cubeaway_friendships(user_a, user_b, status);
   `);
 
   ensureProductsSchemaUpgraded();
@@ -2584,6 +2654,24 @@ function runIncrementalMigrations(): void {
     db.exec("ALTER TABLE users ADD COLUMN admin_permissions_json TEXT NOT NULL DEFAULT '[]'");
   }
 
+  // 7. Ensure orders VAT company invoice columns exist on existing DBs
+  const orderCols = db.prepare('PRAGMA table_info(orders)').all() as Array<{ name: string }>;
+  if (!orderCols.some((c) => c.name === 'require_invoice')) {
+    db.exec('ALTER TABLE orders ADD COLUMN require_invoice INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!orderCols.some((c) => c.name === 'invoice_company_name')) {
+    db.exec("ALTER TABLE orders ADD COLUMN invoice_company_name TEXT DEFAULT ''");
+  }
+  if (!orderCols.some((c) => c.name === 'invoice_tax_id')) {
+    db.exec("ALTER TABLE orders ADD COLUMN invoice_tax_id TEXT DEFAULT ''");
+  }
+  if (!orderCols.some((c) => c.name === 'invoice_company_address')) {
+    db.exec("ALTER TABLE orders ADD COLUMN invoice_company_address TEXT DEFAULT ''");
+  }
+  if (!orderCols.some((c) => c.name === 'invoice_email')) {
+    db.exec("ALTER TABLE orders ADD COLUMN invoice_email TEXT DEFAULT ''");
+  }
+
   db.prepare(`
     UPDATE users
     SET admin_role = 'super_admin', admin_permissions_json = ?
@@ -3271,6 +3359,37 @@ function runIncrementalMigrations(): void {
       'checkin_schedule_json',
       JSON.stringify(DEFAULT_CHECKIN_SCHEDULE)
     );
+  }
+
+  // Seed Cube Away 3D profiles for existing member/staff records if none exist yet
+  const cubeProfilesCount = (db.prepare('SELECT COUNT(*) as c FROM cubeaway_profiles').get() as { c: number }).c;
+  if (cubeProfilesCount === 0) {
+    const existingUsers = db.prepare('SELECT id FROM users ORDER BY id ASC LIMIT 6').all() as Array<{ id: number }>;
+    const starterPresets = [
+      { badge: 'black-panther', lvl: 6, maxLvl: 9, score: 3420, xp: 180, coins: 260, skin: 'roar_gold' },
+      { badge: 'eagle', lvl: 5, maxLvl: 7, score: 2650, xp: 120, coins: 190, skin: 'arcade' },
+      { badge: 'tiger', lvl: 4, maxLvl: 6, score: 1980, xp: 90, coins: 150, skin: 'cyber_neon' },
+    ];
+    existingUsers.forEach((u, idx) => {
+      const p = starterPresets[idx % starterPresets.length];
+      db.prepare(`
+        INSERT OR IGNORE INTO cubeaway_profiles (
+          user_id, avatar_badge, xp, level, coins, current_level, max_level, total_score, levels_cleared, active_skin, unlocked_skins_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        u.id,
+        p.badge,
+        p.xp,
+        p.lvl,
+        p.coins,
+        p.maxLvl,
+        p.maxLvl,
+        p.score,
+        Math.max(1, p.maxLvl - 1),
+        p.skin,
+        JSON.stringify(p.skin === 'arcade' ? ['arcade'] : ['arcade', p.skin])
+      );
+    });
   }
 
   // 14. Seed 16 new retail Coffee & Highland Pepper lines idempotently

@@ -1114,6 +1114,17 @@ export const AccountPage: React.FC = () => {
                     {o.notes}
                   </p>
                 )}
+                {Boolean(o.require_invoice) && (
+                  <div className="text-xs bg-[#FFFBF2] dark:bg-[#0E1512] border border-[#C6A667]/40 p-3 rounded-lg space-y-0.5">
+                    <p className="font-bold text-[#00552B] dark:text-[#C6A667]">
+                      {t('Hóa đơn VAT Công ty:', 'Company VAT Invoice:')} {o.invoice_company_name}
+                    </p>
+                    <p className="text-[#202020]/75 dark:text-[#F1EFEA]/75">
+                      MST: <span className="font-mono font-semibold">{o.invoice_tax_id}</span> · {o.invoice_company_address}
+                      {o.invoice_email ? ` · ${o.invoice_email}` : ''}
+                    </p>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#202020]/10 dark:border-white/10">
                   <span className="font-bold tabular-nums">{t('Tổng cộng:', 'Total:')} {formatPrice(o.total)}</span>
                   <div className="flex flex-wrap gap-2 text-xs">
@@ -1137,6 +1148,15 @@ export const AccountPage: React.FC = () => {
                             shippingFee: o.shipping_fee,
                             total: o.total,
                             items: o.items || [],
+                            invoiceInfo: o.require_invoice
+                              ? {
+                                  required: true,
+                                  companyName: o.invoice_company_name,
+                                  taxId: o.invoice_tax_id,
+                                  companyAddress: o.invoice_company_address,
+                                  invoiceEmail: o.invoice_email,
+                                }
+                              : { required: false },
                           },
                           lang,
                           formatPrice,

@@ -51,6 +51,19 @@ import {
   type CheckinScheduleDay,
   type GameKey,
 } from './src/lib/gamesCatalog.ts';
+import {
+  ARENA_BACKDROPS,
+  CHARACTER_UPGRADES,
+  computeXpForNextLevel,
+  CUBE_SKINS,
+  CUBE_STREAK_REWARDS,
+  getActiveSpecialEvent,
+  TOOL_SHOP_ITEMS,
+  type ArenaBackdropId,
+  type CharacterUpgradeId,
+  type CubeAwayProfile,
+  type CubeSkinId,
+} from './src/lib/cubeAwayData.ts';
 
 initDatabase();
 
@@ -1917,11 +1930,39 @@ app.post('/api/orders', (req: AuthedRequest, res) => {
     pointsToRedeem = 0,
     paymentMethod,
     notes = '',
+    invoiceInfo,
   } = req.body || {};
 
   if (!customerName || !customerEmail || !customerPhone || !shippingAddress || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: 'Missing required checkout details or items' });
     return;
+  }
+
+  const requireInvoice = Boolean(invoiceInfo && invoiceInfo.required);
+  const invoiceCompanyName = requireInvoice ? String(invoiceInfo?.companyName || '').trim().slice(0, 180) : '';
+  const invoiceTaxId = requireInvoice ? String(invoiceInfo?.taxId || '').trim().slice(0, 32) : '';
+  const invoiceCompanyAddress = requireInvoice ? String(invoiceInfo?.companyAddress || '').trim().slice(0, 320) : '';
+  const invoiceEmailRaw = requireInvoice
+    ? String(invoiceInfo?.invoiceEmail || customerEmail || '').trim().toLowerCase().slice(0, 160)
+    : '';
+
+  if (requireInvoice) {
+    if (!invoiceCompanyName || !invoiceTaxId || !invoiceCompanyAddress) {
+      res.status(400).json({
+        error: 'Vui lòng nhập đầy đủ Tên công ty, Mã số thuế (MST) và Địa chỉ xuất hóa đơn VAT.',
+      });
+      return;
+    }
+    if (!/^[0-9A-Za-z-]{8,24}$/.test(invoiceTaxId)) {
+      res.status(400).json({
+        error: 'Mã số thuế (MST) không hợp lệ (cần 8–24 ký tự số hoặc dấu gạch nối, vd: 0312345678).',
+      });
+      return;
+    }
+    if (invoiceEmailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invoiceEmailRaw)) {
+      res.status(400).json({ error: 'Email nhận hóa đơn điện tử không hợp lệ.' });
+      return;
+    }
   }
 
   const createOrderTx = db.transaction(() => {
@@ -2103,8 +2144,9 @@ app.post('/api/orders', (req: AuthedRequest, res) => {
         INSERT INTO orders (
           order_number, user_id, customer_name, customer_email, customer_phone, shipping_address,
           currency, subtotal, discount_amount, points_redeemed, points_discount, shipping_fee, total,
-          voucher_code, payment_method, payment_status, order_status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
+          voucher_code, payment_method, payment_status, order_status, notes,
+          require_invoice, invoice_company_name, invoice_tax_id, invoice_company_address, invoice_email
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?, ?, ?, ?, ?)
       `)
       .run(
         orderNumber,
@@ -2123,7 +2165,12 @@ app.post('/api/orders', (req: AuthedRequest, res) => {
         appliedVoucher,
         paymentMethod || 'cod',
         initialPaymentStatus,
-        [String(notes || '').trim(), redeemedGameGiftNote].filter(Boolean).join(' ')
+        [String(notes || '').trim(), redeemedGameGiftNote].filter(Boolean).join(' '),
+        requireInvoice ? 1 : 0,
+        invoiceCompanyName,
+        invoiceTaxId,
+        invoiceCompanyAddress,
+        invoiceEmailRaw
       );
 
     const orderId = Number(orderResult.lastInsertRowid);
@@ -2209,6 +2256,15 @@ app.post('/api/orders', (req: AuthedRequest, res) => {
         shippingFee,
         paymentMethod: String(paymentMethod || 'cod'),
         customerEmail: String(customerEmail).trim().toLowerCase(),
+        invoiceInfo: requireInvoice
+          ? {
+              required: true,
+              companyName: invoiceCompanyName,
+              taxId: invoiceTaxId,
+              companyAddress: invoiceCompanyAddress,
+              invoiceEmail: invoiceEmailRaw,
+            }
+          : { required: false },
       },
       membership: {
         isNewMember: customerRecord.isNewMember,
@@ -2252,6 +2308,7 @@ app.post('/api/orders', (req: AuthedRequest, res) => {
       totalVnd: created.order.total,
       paymentMethod: created.order.paymentMethod,
       memberCode: created.membership?.memberCode,
+      invoiceInfo: created.order.invoiceInfo,
     });
     res.status(201).json({
       ok: true,
@@ -3692,13 +3749,14 @@ app.get('/api/games', (req: AuthedRequest, res) => {
        ORDER BY CASE game_key
          WHEN 'wheel' THEN 1
          WHEN 'blockblast' THEN 2
-         WHEN 'shake' THEN 3
-         WHEN 'fortune' THEN 4
-         WHEN 'quiz' THEN 5
-         WHEN 'memory' THEN 6
-         WHEN 'harvest' THEN 7
-         WHEN 'mystery' THEN 8
-         ELSE 9
+         WHEN 'cubeaway' THEN 3
+         WHEN 'shake' THEN 4
+         WHEN 'fortune' THEN 5
+         WHEN 'quiz' THEN 6
+         WHEN 'memory' THEN 7
+         WHEN 'harvest' THEN 8
+         WHEN 'mystery' THEN 9
+         ELSE 10
        END`
     )
     .all() as any[];
@@ -3769,7 +3827,7 @@ app.post('/api/games/play', requireAuth, (req: AuthedRequest, res) => {
   const gameKey = String(req.body?.gameKey || '').trim() as GameKey;
   const useExtraPoints = Boolean(req.body?.useExtraPoints);
   const score = Math.max(0, Math.floor(Number(req.body?.score || 0)));
-  const validKeys: GameKey[] = ['wheel', 'blockblast', 'quiz', 'memory', 'harvest', 'mystery', 'shake', 'fortune'];
+  const validKeys: GameKey[] = ['wheel', 'blockblast', 'cubeaway', 'quiz', 'memory', 'harvest', 'mystery', 'shake', 'fortune'];
   if (!validKeys.includes(gameKey)) {
     res.status(400).json({ error: 'Mini-game không hợp lệ.' });
     return;
@@ -3819,7 +3877,7 @@ app.post('/api/games/play', requireAuth, (req: AuthedRequest, res) => {
         );
       }
 
-      if ((gameKey === 'harvest' || gameKey === 'blockblast') && score < Number(cfg.min_score_to_win || 0)) {
+      if ((gameKey === 'harvest' || gameKey === 'blockblast' || gameKey === 'cubeaway') && score < Number(cfg.min_score_to_win || 0)) {
         db.prepare(`
           INSERT INTO game_plays (user_id, game_key, play_date, used_points, score, reward_id, claim_id)
           VALUES (?, ?, ?, ?, ?, NULL, NULL)
@@ -3993,6 +4051,757 @@ app.post('/api/games/play', requireAuth, (req: AuthedRequest, res) => {
       error: err.message || 'Không thể thực hiện lượt chơi lúc này.',
       outOfFreePlays: Boolean(err.outOfFreePlays),
     });
+  }
+});
+
+// =========================================================================
+// ROAR CUBE AWAY 3D — PROGRESSION, UPGRADES, SKINS, STREAKS, EVENTS & SOCIAL
+// =========================================================================
+
+function formatPublicPlayerName(fullName: string | null | undefined, memberCode?: string): string {
+  const clean = String(fullName || '').trim();
+  if (!clean) return memberCode || 'ROAR Player';
+  return clean;
+}
+
+function safeJsonArray<T>(raw: string | null | undefined, fallback: T[]): T[] {
+  try {
+    const parsed = JSON.parse(String(raw || ''));
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeUpgradesJson(raw: string | null | undefined): { radar: number; thruster: number; shield: number; arsenal: number } {
+  try {
+    const p = JSON.parse(String(raw || '{}'));
+    return {
+      radar: Math.max(0, Math.min(5, Number(p.radar || 0))),
+      thruster: Math.max(0, Math.min(5, Number(p.thruster || 0))),
+      shield: Math.max(0, Math.min(5, Number(p.shield || 0))),
+      arsenal: Math.max(0, Math.min(5, Number(p.arsenal || 0))),
+    };
+  } catch {
+    return { radar: 0, thruster: 0, shield: 0, arsenal: 0 };
+  }
+}
+
+function hydrateCubeAwayProfile(userId: number): CubeAwayProfile {
+  db.prepare('INSERT OR IGNORE INTO cubeaway_profiles (user_id) VALUES (?)').run(userId);
+  const row = db
+    .prepare(
+      `SELECT p.*, u.full_name, u.member_code, u.tier
+       FROM cubeaway_profiles p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = ?`
+    )
+    .get(userId) as any;
+
+  const today = getVietnamDateStr(0);
+  const yesterday = getVietnamDateStr(-1);
+
+  let streakDays = Number(row.streak_days || 0);
+  let claimedDays = safeJsonArray<number>(row.streak_claimed_days_json, []);
+  if (row.last_login_date && row.last_login_date !== today && row.last_login_date !== yesterday) {
+    streakDays = 0;
+    claimedDays = [];
+  }
+
+  return {
+    user_id: Number(row.user_id),
+    display_name: formatPublicPlayerName(row.full_name, row.member_code),
+    member_code: String(row.member_code || ''),
+    tier: String(row.tier || 'ROAR Member'),
+    avatar_badge: String(row.avatar_badge || 'lion'),
+    xp: Number(row.xp || 0),
+    level: Number(row.level || 1),
+    coins: Number(row.coins || 0),
+    current_level: Number(row.current_level || 1),
+    max_level: Number(row.max_level || 1),
+    total_score: Number(row.total_score || 0),
+    levels_cleared: Number(row.levels_cleared || 0),
+    daily_cleared_count: Number(row.daily_cleared_count || 0),
+    last_daily_date: String(row.last_daily_date || ''),
+    active_skin: (row.active_skin || 'arcade') as CubeSkinId,
+    unlocked_skins: safeJsonArray<CubeSkinId>(row.unlocked_skins_json, ['arcade']),
+    active_backdrop: (row.active_backdrop || 'indigo_studio') as ArenaBackdropId,
+    unlocked_backdrops: safeJsonArray<ArenaBackdropId>(row.unlocked_backdrops_json, ['indigo_studio']),
+    upgrades: safeUpgradesJson(row.upgrades_json),
+    tool_hammer: Number(row.tool_hammer || 0),
+    tool_shuffle: Number(row.tool_shuffle || 0),
+    tool_hint: Number(row.tool_hint || 0),
+    streak_days: streakDays,
+    last_login_date: String(row.last_login_date || ''),
+    streak_claimed_days: claimedDays,
+    event_cleared_stages: safeJsonArray<string>(row.event_cleared_stages_json, []),
+  };
+}
+
+app.get('/api/cubeaway/state', (req: AuthedRequest, res) => {
+  const today = getVietnamDateStr(0);
+  const activeEvent = getActiveSpecialEvent(Date.now());
+  const profile = req.authUser ? hydrateCubeAwayProfile(req.authUser.userId) : null;
+  res.json({
+    todayDate: today,
+    activeEvent,
+    profile,
+  });
+});
+
+app.post('/api/cubeaway/complete-stage', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const mode = String(req.body?.mode || 'campaign') as 'campaign' | 'daily' | 'event';
+  const stageKey = String(req.body?.stageKey || 'lvl-1').slice(0, 64);
+  const levelNumber = Math.max(1, Math.floor(Number(req.body?.levelNumber || 1)));
+  const score = Math.max(0, Math.floor(Number(req.body?.score || 0)));
+  const movesUsed = Math.max(1, Math.floor(Number(req.body?.movesUsed || 1)));
+  const timeMs = Math.max(500, Math.floor(Number(req.body?.timeMs || 10000)));
+  const stars = Math.max(1, Math.min(3, Math.floor(Number(req.body?.stars || 3))));
+  const baseCoins = Math.max(10, Math.min(400, Math.floor(Number(req.body?.coinReward || 45))));
+  const baseXp = Math.max(10, Math.min(500, Math.floor(Number(req.body?.xpReward || 60))));
+
+  if (!['campaign', 'daily', 'event'].includes(mode)) {
+    res.status(400).json({ error: 'Chế độ chơi không hợp lệ.' });
+    return;
+  }
+
+  const today = getVietnamDateStr(0);
+  const activeEvent = getActiveSpecialEvent(Date.now());
+
+  const result = db.transaction(() => {
+    const profile = hydrateCubeAwayProfile(userId);
+    const arsenalMult = 1 + profile.upgrades.arsenal * 0.2;
+    const isFirstDailyToday = mode === 'daily' && profile.last_daily_date !== today;
+    const dailyBonusMult = isFirstDailyToday ? 2 : 1;
+
+    const earnedCoins = Math.round(baseCoins * arsenalMult * dailyBonusMult);
+    const earnedXp = Math.round(baseXp * dailyBonusMult);
+
+    let nextXp = profile.xp + earnedXp;
+    let nextLevel = profile.level;
+    let leveledUp = false;
+    let bonusHammers = 0;
+
+    while (nextXp >= computeXpForNextLevel(nextLevel)) {
+      nextXp -= computeXpForNextLevel(nextLevel);
+      nextLevel += 1;
+      leveledUp = true;
+      bonusHammers += profile.upgrades.arsenal > 0 ? 1 : 0;
+    }
+
+    const nextMaxLevel = mode === 'campaign' ? Math.max(profile.max_level, levelNumber + 1) : profile.max_level;
+    const nextCurrentLevel = mode === 'campaign' ? levelNumber + 1 : profile.current_level;
+    const nextDailyCleared = isFirstDailyToday ? profile.daily_cleared_count + 1 : profile.daily_cleared_count;
+    const nextLastDaily = mode === 'daily' ? today : profile.last_daily_date;
+
+    const eventStages = new Set(profile.event_cleared_stages);
+    let eventCompletedNow = false;
+    let eventBonusCoins = 0;
+    let eventBonusRoarPts = 0;
+
+    if (mode === 'event') {
+      eventStages.add(stageKey);
+      const allEventKeys = activeEvent.stages.map((s) => s.stageKey);
+      const alreadyDoneAll = allEventKeys.every((k) => profile.event_cleared_stages.includes(k));
+      const nowDoneAll = allEventKeys.every((k) => eventStages.has(k));
+      if (!alreadyDoneAll && nowDoneAll) {
+        eventCompletedNow = true;
+        eventBonusCoins = activeEvent.bonusCoins;
+        eventBonusRoarPts = activeEvent.bonusRoarPoints;
+        db.prepare(`
+          INSERT INTO points_ledger (user_id, order_id, entry_type, points, description_vi, description_en, expires_at)
+          VALUES (?, NULL, 'earn_available', ?, ?, ?, datetime('now', '+365 days'))
+        `).run(
+          userId,
+          eventBonusRoarPts,
+          `Hoàn thành sự kiện Cube Away 3D: ${activeEvent.titleVi}`,
+          `Completed Cube Away 3D Event: ${activeEvent.titleEn}`
+        );
+        syncUserTierInDb(userId);
+      }
+    }
+
+    if (isFirstDailyToday) {
+      db.prepare(`
+        INSERT INTO points_ledger (user_id, order_id, entry_type, points, description_vi, description_en, expires_at)
+        VALUES (?, NULL, 'earn_available', 25, ?, ?, datetime('now', '+365 days'))
+      `).run(
+        userId,
+        `Thưởng Thử Thách Ngày Cube Away 3D (${today})`,
+        `Cube Away 3D Daily Challenge Bonus (${today})`
+      );
+      syncUserTierInDb(userId);
+    }
+
+    db.prepare(`
+      INSERT INTO cubeaway_scores (user_id, mode, stage_key, score, moves_used, time_ms, stars, play_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, mode, stageKey, score, movesUsed, timeMs, stars, today);
+
+    db.prepare(`
+      UPDATE cubeaway_profiles
+      SET xp = ?,
+          level = ?,
+          coins = coins + ?,
+          current_level = ?,
+          max_level = ?,
+          total_score = total_score + ?,
+          levels_cleared = levels_cleared + 1,
+          daily_cleared_count = ?,
+          last_daily_date = ?,
+          tool_hammer = tool_hammer + ?,
+          event_cleared_stages_json = ?,
+          updated_at = datetime('now')
+      WHERE user_id = ?
+    `).run(
+      nextXp,
+      nextLevel,
+      earnedCoins + eventBonusCoins,
+      nextCurrentLevel,
+      nextMaxLevel,
+      score,
+      nextDailyCleared,
+      nextLastDaily,
+      bonusHammers,
+      JSON.stringify([...eventStages]),
+      userId
+    );
+
+    return {
+      earnedCoins: earnedCoins + eventBonusCoins,
+      earnedXp,
+      leveledUp,
+      newCharLevel: nextLevel,
+      isFirstDailyToday,
+      dailyRoarPoints: isFirstDailyToday ? 25 : 0,
+      eventCompletedNow,
+      eventBonusRoarPts,
+      profile: hydrateCubeAwayProfile(userId),
+    };
+  })();
+
+  res.json({ ok: true, ...result });
+});
+
+app.post('/api/cubeaway/upgrade', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const upgradeId = String(req.body?.upgradeId || '').trim() as CharacterUpgradeId;
+  const spec = CHARACTER_UPGRADES.find((u) => u.id === upgradeId);
+  if (!spec) {
+    res.status(400).json({ error: 'Kỹ năng nâng cấp không hợp lệ.' });
+    return;
+  }
+
+  try {
+    const updatedProfile = db.transaction(() => {
+      const profile = hydrateCubeAwayProfile(userId);
+      const currentLvl = profile.upgrades[upgradeId] || 0;
+      if (currentLvl >= spec.maxLevel) {
+        throw new Error('Kỹ năng này đã đạt cấp tối đa!');
+      }
+      const cost = spec.baseCost + currentLvl * spec.costStep;
+      if (profile.coins < cost) {
+        throw new Error(`Cần ${cost} Cube Coins để nâng cấp (bạn đang có ${profile.coins} xu).`);
+      }
+      const nextUpgrades = { ...profile.upgrades, [upgradeId]: currentLvl + 1 };
+      const bonusHammer = upgradeId === 'arsenal' ? 1 : 0;
+      const bonusHint = upgradeId === 'radar' ? 1 : 0;
+
+      db.prepare(`
+        UPDATE cubeaway_profiles
+        SET coins = coins - ?,
+            upgrades_json = ?,
+            tool_hammer = tool_hammer + ?,
+            tool_hint = tool_hint + ?,
+            updated_at = datetime('now')
+        WHERE user_id = ?
+      `).run(cost, JSON.stringify(nextUpgrades), bonusHammer, bonusHint, userId);
+
+      return hydrateCubeAwayProfile(userId);
+    })();
+    res.json({ ok: true, profile: updatedProfile });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Không thể nâng cấp.' });
+  }
+});
+
+app.post('/api/cubeaway/buy-tool', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const tool = String(req.body?.tool || '').trim() as 'hammer' | 'shuffle' | 'hint';
+  const item = TOOL_SHOP_ITEMS.find((t) => t.tool === tool);
+  if (!item) {
+    res.status(400).json({ error: 'Vật phẩm không hợp lệ.' });
+    return;
+  }
+
+  try {
+    const updatedProfile = db.transaction(() => {
+      const profile = hydrateCubeAwayProfile(userId);
+      if (profile.coins < item.costCoins) {
+        throw new Error(`Không đủ Xu (cần ${item.costCoins} Xu).`);
+      }
+      const col = tool === 'hammer' ? 'tool_hammer' : tool === 'shuffle' ? 'tool_shuffle' : 'tool_hint';
+      db.prepare(`UPDATE cubeaway_profiles SET coins = coins - ?, ${col} = ${col} + 1, updated_at = datetime('now') WHERE user_id = ?`).run(
+        item.costCoins,
+        userId
+      );
+      return hydrateCubeAwayProfile(userId);
+    })();
+    res.json({ ok: true, profile: updatedProfile });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Không thể mua vật phẩm.' });
+  }
+});
+
+app.post('/api/cubeaway/use-tool', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const tool = String(req.body?.tool || '').trim() as 'hammer' | 'shuffle' | 'hint';
+  if (!['hammer', 'shuffle', 'hint'].includes(tool)) {
+    res.status(400).json({ error: 'Công cụ không hợp lệ.' });
+    return;
+  }
+  const col = tool === 'hammer' ? 'tool_hammer' : tool === 'shuffle' ? 'tool_shuffle' : 'tool_hint';
+  const upd = db.prepare(`UPDATE cubeaway_profiles SET ${col} = ${col} - 1, updated_at = datetime('now') WHERE user_id = ? AND ${col} > 0`).run(userId);
+  if (upd.changes !== 1) {
+    res.status(400).json({ error: 'Bạn đã hết lượt sử dụng vật phẩm này!' });
+    return;
+  }
+  res.json({ ok: true, profile: hydrateCubeAwayProfile(userId) });
+});
+
+app.post('/api/cubeaway/customize', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const kind = String(req.body?.kind || 'skin');
+  const itemId = String(req.body?.itemId || '').trim();
+  const avatarBadge = String(req.body?.avatarBadge || '').trim();
+
+  if (kind === 'avatar' && avatarBadge) {
+    db.prepare("UPDATE cubeaway_profiles SET avatar_badge = ?, updated_at = datetime('now') WHERE user_id = ?").run(avatarBadge.slice(0, 32), userId);
+    res.json({ ok: true, profile: hydrateCubeAwayProfile(userId) });
+    return;
+  }
+
+  try {
+    const updatedProfile = db.transaction(() => {
+      const profile = hydrateCubeAwayProfile(userId);
+      if (kind === 'skin') {
+        const skin = CUBE_SKINS.find((s) => s.id === itemId);
+        if (!skin) throw new Error('Giao diện khối không tồn tại.');
+        const unlocked = new Set(profile.unlocked_skins);
+        let cost = 0;
+        if (!unlocked.has(skin.id)) {
+          cost = skin.costCoins;
+          if (profile.coins < cost) {
+            throw new Error(`Cần ${cost} Cube Coins để mở khóa ${skin.nameVi}.`);
+          }
+          unlocked.add(skin.id);
+        }
+        db.prepare(`
+          UPDATE cubeaway_profiles
+          SET coins = coins - ?, active_skin = ?, unlocked_skins_json = ?, updated_at = datetime('now')
+          WHERE user_id = ?
+        `).run(cost, skin.id, JSON.stringify([...unlocked]), userId);
+      } else if (kind === 'backdrop') {
+        const bd = ARENA_BACKDROPS.find((b) => b.id === itemId);
+        if (!bd) throw new Error('Phông nền 3D không tồn tại.');
+        const unlocked = new Set(profile.unlocked_backdrops);
+        let cost = 0;
+        if (!unlocked.has(bd.id)) {
+          cost = bd.costCoins;
+          if (profile.coins < cost) {
+            throw new Error(`Cần ${cost} Cube Coins để mở khóa ${bd.nameVi}.`);
+          }
+          unlocked.add(bd.id);
+        }
+        db.prepare(`
+          UPDATE cubeaway_profiles
+          SET coins = coins - ?, active_backdrop = ?, unlocked_backdrops_json = ?, updated_at = datetime('now')
+          WHERE user_id = ?
+        `).run(cost, bd.id, JSON.stringify([...unlocked]), userId);
+      } else {
+        throw new Error('Tùy chọn không hợp lệ.');
+      }
+      return hydrateCubeAwayProfile(userId);
+    })();
+    res.json({ ok: true, profile: updatedProfile });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Không thể cập nhật giao diện.' });
+  }
+});
+
+app.post('/api/cubeaway/claim-streak', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const today = getVietnamDateStr(0);
+  const yesterday = getVietnamDateStr(-1);
+
+  try {
+    const result = db.transaction(() => {
+      const profile = hydrateCubeAwayProfile(userId);
+      if (profile.last_login_date === today) {
+        throw new Error('Bạn đã nhận quà đăng nhập Cube Away hôm nay rồi!');
+      }
+      const nextStreak = profile.last_login_date === yesterday ? profile.streak_days + 1 : 1;
+      const cycleDay = ((nextStreak - 1) % 7) + 1;
+      const spec = CUBE_STREAK_REWARDS[cycleDay - 1] || CUBE_STREAK_REWARDS[0];
+      const nextClaimed = cycleDay === 1 ? [1] : Array.from(new Set([...profile.streak_claimed_days, cycleDay]));
+
+      let hammerAdd = 0;
+      let shuffleAdd = 0;
+      let hintAdd = 0;
+      if (spec.toolGift?.tool === 'hammer') hammerAdd = spec.toolGift.qty;
+      if (spec.toolGift?.tool === 'shuffle') shuffleAdd = spec.toolGift.qty;
+      if (spec.toolGift?.tool === 'hint') hintAdd = spec.toolGift.qty;
+
+      const unlockedSkins = new Set(profile.unlocked_skins);
+      if (spec.skinUnlock) unlockedSkins.add(spec.skinUnlock);
+
+      let nextXp = profile.xp + spec.xp;
+      let nextLevel = profile.level;
+      while (nextXp >= computeXpForNextLevel(nextLevel)) {
+        nextXp -= computeXpForNextLevel(nextLevel);
+        nextLevel += 1;
+      }
+
+      db.prepare(`
+        UPDATE cubeaway_profiles
+        SET xp = ?,
+            level = ?,
+            coins = coins + ?,
+            tool_hammer = tool_hammer + ?,
+            tool_shuffle = tool_shuffle + ?,
+            tool_hint = tool_hint + ?,
+            unlocked_skins_json = ?,
+            streak_days = ?,
+            last_login_date = ?,
+            streak_claimed_days_json = ?,
+            updated_at = datetime('now')
+        WHERE user_id = ?
+      `).run(
+        nextXp,
+        nextLevel,
+        spec.coins,
+        hammerAdd,
+        shuffleAdd,
+        hintAdd,
+        JSON.stringify([...unlockedSkins]),
+        nextStreak,
+        today,
+        JSON.stringify(nextClaimed),
+        userId
+      );
+
+      return {
+        claimedDay: cycleDay,
+        streakDays: nextStreak,
+        reward: spec,
+        profile: hydrateCubeAwayProfile(userId),
+      };
+    })();
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Không thể điểm danh lúc này.' });
+  }
+});
+
+app.get('/api/cubeaway/leaderboard', (req: AuthedRequest, res) => {
+  const tab = String(req.query.tab || 'global');
+  const today = getVietnamDateStr(0);
+  const viewerId = req.authUser?.userId || 0;
+
+  if (tab === 'daily') {
+    const rows = db
+      .prepare(
+        `SELECT s.user_id, u.full_name, u.member_code, u.tier, p.avatar_badge, p.level,
+                MAX(s.score) as best_score, MIN(s.time_ms) as best_time_ms, MIN(s.moves_used) as min_moves
+         FROM cubeaway_scores s
+         JOIN users u ON u.id = s.user_id
+         LEFT JOIN cubeaway_profiles p ON p.user_id = s.user_id
+         WHERE s.mode = 'daily' AND s.play_date = ?
+         GROUP BY s.user_id
+         ORDER BY best_score DESC, best_time_ms ASC
+         LIMIT 25`
+      )
+      .all(today) as any[];
+    res.json({
+      tab: 'daily',
+      entries: rows.map((r, i) => ({
+        rank: i + 1,
+        userId: r.user_id,
+        displayName: formatPublicPlayerName(r.full_name, r.member_code),
+        memberCode: r.member_code,
+        tier: r.tier,
+        avatarBadge: r.avatar_badge || 'lion',
+        charLevel: r.level || 1,
+        score: Number(r.best_score || 0),
+        timeMs: Number(r.best_time_ms || 0),
+        isMe: r.user_id === viewerId,
+      })),
+    });
+    return;
+  }
+
+  if (tab === 'friends' && viewerId > 0) {
+    const friendRows = db
+      .prepare(
+        `SELECT u.id as user_id, u.full_name, u.member_code, u.tier, p.avatar_badge, p.level, p.max_level, p.total_score, p.streak_days
+         FROM cubeaway_profiles p
+         JOIN users u ON u.id = p.user_id
+         WHERE p.user_id = ?
+            OR p.user_id IN (
+              SELECT CASE WHEN f.user_a = ? THEN f.user_b ELSE f.user_a END
+              FROM cubeaway_friendships f
+              WHERE (f.user_a = ? OR f.user_b = ?) AND f.status = 'accepted'
+            )
+         ORDER BY p.total_score DESC, p.max_level DESC
+         LIMIT 30`
+      )
+      .all(viewerId, viewerId, viewerId, viewerId) as any[];
+
+    res.json({
+      tab: 'friends',
+      entries: friendRows.map((r, i) => ({
+        rank: i + 1,
+        userId: r.user_id,
+        displayName: formatPublicPlayerName(r.full_name, r.member_code),
+        memberCode: r.member_code,
+        tier: r.tier,
+        avatarBadge: r.avatar_badge || 'lion',
+        charLevel: r.level || 1,
+        maxLevel: r.max_level || 1,
+        score: Number(r.total_score || 0),
+        streakDays: Number(r.streak_days || 0),
+        isMe: r.user_id === viewerId,
+      })),
+    });
+    return;
+  }
+
+  const globalRows = db
+    .prepare(
+      `SELECT p.user_id, u.full_name, u.member_code, u.tier, p.avatar_badge, p.level, p.max_level, p.total_score, p.streak_days
+       FROM cubeaway_profiles p
+       JOIN users u ON u.id = p.user_id
+       ORDER BY p.total_score DESC, p.max_level DESC, p.level DESC
+       LIMIT 30`
+    )
+    .all() as any[];
+
+  res.json({
+    tab: 'global',
+    entries: globalRows.map((r, i) => ({
+      rank: i + 1,
+      userId: r.user_id,
+      displayName: formatPublicPlayerName(r.full_name, r.member_code),
+      memberCode: r.member_code,
+      tier: r.tier,
+      avatarBadge: r.avatar_badge || 'lion',
+      charLevel: r.level || 1,
+      maxLevel: r.max_level || 1,
+      score: Number(r.total_score || 0),
+      streakDays: Number(r.streak_days || 0),
+      isMe: r.user_id === viewerId,
+    })),
+  });
+});
+
+app.get('/api/cubeaway/friends', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const today = getVietnamDateStr(0);
+
+  const relations = db
+    .prepare(
+      `SELECT f.*,
+              CASE WHEN f.user_a = ? THEN f.user_b ELSE f.user_a END as other_id
+       FROM cubeaway_friendships f
+       WHERE f.user_a = ? OR f.user_b = ?`
+    )
+    .all(userId, userId, userId) as any[];
+
+  const relationByOther = new Map<number, any>();
+  for (const r of relations) {
+    relationByOther.set(Number(r.other_id), r);
+  }
+
+  const giftsSentToday = new Set(
+    (
+      db
+        .prepare('SELECT receiver_id FROM cubeaway_friend_gifts WHERE sender_id = ? AND gift_date = ?')
+        .all(userId, today) as Array<{ receiver_id: number }>
+    ).map((g) => Number(g.receiver_id))
+  );
+
+  const friends: any[] = [];
+  const incomingRequests: any[] = [];
+  const outgoingRequests: any[] = [];
+
+  for (const r of relations) {
+    const otherId = Number(r.other_id);
+    const other = db
+      .prepare(
+        `SELECT u.id, u.full_name, u.member_code, u.tier,
+                COALESCE(p.avatar_badge, 'lion') as avatar_badge,
+                COALESCE(p.level, 1) as char_level,
+                COALESCE(p.max_level, 1) as max_level,
+                COALESCE(p.total_score, 0) as total_score
+         FROM users u
+         LEFT JOIN cubeaway_profiles p ON p.user_id = u.id
+         WHERE u.id = ?`
+      )
+      .get(otherId) as any;
+    if (!other) continue;
+    const card = {
+      friendshipId: r.id,
+      userId: other.id,
+      displayName: formatPublicPlayerName(other.full_name, other.member_code),
+      memberCode: other.member_code,
+      tier: other.tier,
+      avatarBadge: other.avatar_badge,
+      charLevel: other.char_level,
+      maxLevel: other.max_level,
+      totalScore: other.total_score,
+      giftedToday: giftsSentToday.has(other.id),
+    };
+    if (r.status === 'accepted') friends.push(card);
+    else if (Number(r.requester_id) === userId) outgoingRequests.push(card);
+    else incomingRequests.push(card);
+  }
+
+  const allCandidates = db
+    .prepare(
+      `SELECT u.id, u.full_name, u.member_code, u.tier,
+              COALESCE(p.avatar_badge, 'lion') as avatar_badge,
+              COALESCE(p.level, 1) as char_level,
+              COALESCE(p.max_level, 1) as max_level,
+              COALESCE(p.total_score, 0) as total_score
+       FROM users u
+       LEFT JOIN cubeaway_profiles p ON p.user_id = u.id
+       WHERE u.id != ?
+         AND (? = '' OR LOWER(u.full_name) LIKE ? OR LOWER(u.member_code) LIKE ?)
+       ORDER BY COALESCE(p.total_score, 0) DESC, u.id ASC
+       LIMIT 16`
+    )
+    .all(userId, q, `%${q}%`, `%${q}%`) as any[];
+
+  const directory = allCandidates
+    .filter((c) => !relationByOther.has(Number(c.id)))
+    .slice(0, 8)
+    .map((c) => ({
+      userId: c.id,
+      displayName: formatPublicPlayerName(c.full_name, c.member_code),
+      memberCode: c.member_code,
+      tier: c.tier,
+      avatarBadge: c.avatar_badge,
+      charLevel: c.char_level,
+      maxLevel: c.max_level,
+      totalScore: c.total_score,
+    }));
+
+  res.json({
+    friends,
+    incomingRequests,
+    outgoingRequests,
+    directory,
+  });
+});
+
+app.post('/api/cubeaway/friends/request', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const targetUserId = Number(req.body?.targetUserId || 0);
+  const memberCode = String(req.body?.memberCode || '').trim().toUpperCase();
+
+  let target: any = null;
+  if (targetUserId > 0) {
+    target = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(targetUserId);
+  } else if (memberCode) {
+    target = db.prepare('SELECT id, full_name FROM users WHERE UPPER(TRIM(member_code)) = ?').get(memberCode);
+  }
+
+  if (!target || Number(target.id) === userId) {
+    res.status(404).json({ error: 'Không tìm thấy người chơi phù hợp.' });
+    return;
+  }
+
+  const a = Math.min(userId, Number(target.id));
+  const b = Math.max(userId, Number(target.id));
+  const existing = db.prepare('SELECT * FROM cubeaway_friendships WHERE user_a = ? AND user_b = ?').get(a, b) as any;
+
+  if (existing) {
+    if (existing.status === 'accepted') {
+      res.status(400).json({ error: 'Hai bạn đã kết bạn rồi!' });
+      return;
+    }
+    if (Number(existing.requester_id) !== userId) {
+      db.prepare("UPDATE cubeaway_friendships SET status = 'accepted', updated_at = datetime('now') WHERE id = ?").run(existing.id);
+      res.json({ ok: true, status: 'accepted' });
+      return;
+    }
+    res.status(400).json({ error: 'Đã gửi lời mời kết bạn trước đó.' });
+    return;
+  }
+
+  db.prepare(`
+    INSERT INTO cubeaway_friendships (user_a, user_b, requester_id, status)
+    VALUES (?, ?, ?, 'pending')
+  `).run(a, b, userId);
+
+  res.json({ ok: true, status: 'pending' });
+});
+
+app.post('/api/cubeaway/friends/respond', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const friendshipId = Number(req.body?.friendshipId || 0);
+  const action = String(req.body?.action || 'accept');
+
+  const row = db.prepare('SELECT * FROM cubeaway_friendships WHERE id = ?').get(friendshipId) as any;
+  if (!row || (Number(row.user_a) !== userId && Number(row.user_b) !== userId)) {
+    res.status(404).json({ error: 'Không tìm thấy lời mời.' });
+    return;
+  }
+  if (action === 'accept' && Number(row.requester_id) !== userId) {
+    db.prepare("UPDATE cubeaway_friendships SET status = 'accepted', updated_at = datetime('now') WHERE id = ?").run(friendshipId);
+    res.json({ ok: true, status: 'accepted' });
+  } else {
+    db.prepare('DELETE FROM cubeaway_friendships WHERE id = ?').run(friendshipId);
+    res.json({ ok: true, status: 'removed' });
+  }
+});
+
+app.post('/api/cubeaway/friends/gift', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.authUser!.userId;
+  const friendId = Number(req.body?.friendId || 0);
+  if (!friendId || friendId === userId) {
+    res.status(400).json({ error: 'Bạn bè không hợp lệ.' });
+    return;
+  }
+
+  const a = Math.min(userId, friendId);
+  const b = Math.max(userId, friendId);
+  const rel = db
+    .prepare("SELECT id FROM cubeaway_friendships WHERE user_a = ? AND user_b = ? AND status = 'accepted'")
+    .get(a, b);
+  if (!rel) {
+    res.status(400).json({ error: 'Cần kết bạn trước khi gửi quà năng lượng.' });
+    return;
+  }
+
+  const today = getVietnamDateStr(0);
+  try {
+    db.transaction(() => {
+      db.prepare('INSERT INTO cubeaway_friend_gifts (sender_id, receiver_id, gift_date, coins_amount) VALUES (?, ?, ?, 15)').run(
+        userId,
+        friendId,
+        today
+      );
+      hydrateCubeAwayProfile(friendId);
+      hydrateCubeAwayProfile(userId);
+      db.prepare("UPDATE cubeaway_profiles SET coins = coins + 15, updated_at = datetime('now') WHERE user_id = ?").run(friendId);
+      db.prepare("UPDATE cubeaway_profiles SET coins = coins + 5, updated_at = datetime('now') WHERE user_id = ?").run(userId);
+    })();
+    res.json({ ok: true, profile: hydrateCubeAwayProfile(userId) });
+  } catch {
+    res.status(400).json({ error: 'Bạn đã gửi quà cho người bạn này hôm nay rồi!' });
   }
 });
 
@@ -4220,13 +5029,14 @@ app.get('/api/admin/games/analytics', requirePermission('promotions'), (req, res
        ORDER BY CASE game_key
          WHEN 'wheel' THEN 1
          WHEN 'blockblast' THEN 2
-         WHEN 'shake' THEN 3
-         WHEN 'fortune' THEN 4
-         WHEN 'quiz' THEN 5
-         WHEN 'memory' THEN 6
-         WHEN 'harvest' THEN 7
-         WHEN 'mystery' THEN 8
-         ELSE 9
+         WHEN 'cubeaway' THEN 3
+         WHEN 'shake' THEN 4
+         WHEN 'fortune' THEN 5
+         WHEN 'quiz' THEN 6
+         WHEN 'memory' THEN 7
+         WHEN 'harvest' THEN 8
+         WHEN 'mystery' THEN 9
+         ELSE 10
        END`
     )
     .all() as any[];

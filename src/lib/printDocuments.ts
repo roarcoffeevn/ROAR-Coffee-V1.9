@@ -77,6 +77,13 @@ export interface PrintableOrderData {
   shippingFee?: number;
   total: number;
   items?: PrintableOrderItem[];
+  invoiceInfo?: {
+    required?: boolean;
+    companyName?: string;
+    taxId?: string;
+    companyAddress?: string;
+    invoiceEmail?: string;
+  };
 }
 
 export function printOrderInvoice(
@@ -171,6 +178,18 @@ export function printOrderInvoice(
       ${order.orderStatus ? `<div>${isVi ? 'Trạng thái đơn' : 'Order Status'}: ${escapeHtml(order.orderStatus)}</div>` : ''}
     </div>
   </div>
+
+  ${
+    order.invoiceInfo?.required
+      ? `<div style="background:#FFFBF2;border:1px solid #C6A667;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;">
+    <div style="font-weight:700;color:#003D25;margin-bottom:4px;">${isVi ? 'THÔNG TIN XUẤT HÓA ĐƠN VAT CÔNG TY' : 'COMPANY VAT INVOICE DETAILS'}</div>
+    <div><strong>${isVi ? 'Tên công ty:' : 'Company:'}</strong> ${escapeHtml(order.invoiceInfo.companyName || '')}</div>
+    <div><strong>${isVi ? 'Mã số thuế (MST):' : 'Tax ID:'}</strong> <span style="font-family:monospace;">${escapeHtml(order.invoiceInfo.taxId || '')}</span></div>
+    <div><strong>${isVi ? 'Địa chỉ GPKD:' : 'Registered Address:'}</strong> ${escapeHtml(order.invoiceInfo.companyAddress || '')}</div>
+    <div><strong>${isVi ? 'Email nhận hóa đơn:' : 'E-Invoice Email:'}</strong> ${escapeHtml(order.invoiceInfo.invoiceEmail || order.customerEmail || '')}</div>
+  </div>`
+      : ''
+  }
 
   ${
     rows

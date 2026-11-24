@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   Award,
+  Box,
   Brain,
   Check,
   Coins,
@@ -53,6 +54,10 @@ import { MysteryBoxGame } from '../components/games/MysteryBoxGame';
 import { BlockBlastGame } from '../components/games/BlockBlastGame';
 import { DailyCheckinGame } from '../components/DailyCheckinGame';
 
+const CubeAway3DGame = React.lazy(() =>
+  import('../components/games/CubeAway3DGame').then((m) => ({ default: m.CubeAway3DGame }))
+);
+
 interface RecentWinner {
   id: number;
   game_key: GameKey;
@@ -78,6 +83,7 @@ export const PlayGamesPage: React.FC = () => {
   const [remainingFreeToday, setRemainingFreeToday] = useState<Record<string, number>>({
     wheel: 1,
     blockblast: 2,
+    cubeaway: 2,
     shake: 2,
     fortune: 1,
     quiz: 1,
@@ -128,6 +134,7 @@ export const PlayGamesPage: React.FC = () => {
   const gameMetaList: Array<{ key: GameKey; icon: React.ReactNode; shortVi: string; shortEn: string }> = [
     { key: 'wheel', icon: <Disc3 className="w-4 h-4" />, shortVi: 'Vòng Quay', shortEn: 'Lucky Wheel' },
     { key: 'blockblast', icon: <LayoutGrid className="w-4 h-4" />, shortVi: 'Block Blast', shortEn: 'Block Blast' },
+    { key: 'cubeaway', icon: <Box className="w-4 h-4" />, shortVi: 'Cube Away 3D', shortEn: 'Cube Away 3D' },
     { key: 'shake', icon: <Smartphone className="w-4 h-4" />, shortVi: 'Lắc Điện Thoại', shortEn: 'Shake & Win' },
     { key: 'fortune', icon: <ScrollText className="w-4 h-4" />, shortVi: 'Xin Xăm Cà Phê', shortEn: 'Fortune Stick' },
     { key: 'quiz', icon: <HelpCircle className="w-4 h-4" />, shortVi: 'Gu 7 Cá Tính', shortEn: 'Taste Quiz' },
@@ -254,8 +261,8 @@ export const PlayGamesPage: React.FC = () => {
               </h1>
               <p className="hidden sm:block text-sm text-[#F8F5EF]/80 leading-relaxed">
                 {t(
-                  'Tham gia 8 mini-game tương tác mỗi ngày (Vòng Quay, Block Blast, Lắc Điện Thoại, Xin Xăm Cà Phê, Đoán Gu, Lật Thẻ, Hứng Hạt, Hộp Bí Ẩn) để tích điểm ROAR CLUB, săn voucher và rinh ngay túi cà phê tặng kèm miễn phí.',
-                  'Play 8 daily interactive coffee games (Lucky Wheel, Block Blast, Shake & Win, Fortune Stick, Taste Quiz, Memory, Harvest & Mystery Box) to earn ROAR CLUB points, vouchers, and complimentary coffee gifts.'
+                  'Tham gia 9 mini-game tương tác mỗi ngày (Vòng Quay, Block Blast, Cube Away 3D, Lắc Điện Thoại, Xin Xăm Cà Phê, Đoán Gu, Lật Thẻ, Hứng Hạt, Hộp Bí Ẩn) để tích điểm ROAR CLUB, săn voucher và rinh ngay túi cà phê tặng kèm miễn phí.',
+                  'Play 9 daily interactive coffee games (Lucky Wheel, Block Blast, Cube Away 3D, Shake & Win, Fortune Stick, Taste Quiz, Memory, Harvest & Mystery Box) to earn ROAR CLUB points, vouchers, and complimentary coffee gifts.'
                 )}
               </p>
             </div>
@@ -439,6 +446,26 @@ export const PlayGamesPage: React.FC = () => {
                 onRequireLogin={() => navigate(localePath('/account'))}
                 onDemoResult={handleDemoResult}
               />
+            ) : activeGame === 'cubeaway' ? (
+              <React.Suspense
+                fallback={
+                  <div className="h-[380px] rounded-2xl bg-[#0F172A] text-white flex items-center justify-center text-sm font-bold">
+                    {t('Đang khởi tạo đấu trường 3D...', 'Loading 3D Arena...')}
+                  </div>
+                }
+              >
+                <CubeAway3DGame
+                  lang={lang}
+                  config={currentConfig}
+                  rewards={currentRewards}
+                  remainingFreeToday={remainingFreeToday.cubeaway ?? 0}
+                  isSignedIn={Boolean(user)}
+                  userPoints={userAvailablePts}
+                  onPlayReal={(useExtra, score) => handlePlayReal('cubeaway', useExtra, score)}
+                  onRequireLogin={() => navigate(localePath('/account'))}
+                  onDemoResult={handleDemoResult}
+                />
+              </React.Suspense>
             ) : (
               <MysteryBoxGame
                 lang={lang}

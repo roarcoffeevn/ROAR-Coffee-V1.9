@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Banknote,
+  Building2,
   Calendar,
   Check,
   CheckCircle2,
   Clock,
   Copy,
+  FileText,
   Gamepad2,
   Gift,
   MapPin,
@@ -530,6 +532,11 @@ export const CheckoutPage: React.FC = () => {
   const [shippingAddress, setShippingAddress] = useState(defaultAddr?.addressLine || '');
   const [paymentMethod, setPaymentMethod] = useState('vietqr');
   const [notes, setNotes] = useState('');
+  const [requireInvoice, setRequireInvoice] = useState(false);
+  const [invoiceCompanyName, setInvoiceCompanyName] = useState(user?.companyName || '');
+  const [invoiceTaxId, setInvoiceTaxId] = useState('');
+  const [invoiceCompanyAddress, setInvoiceCompanyAddress] = useState('');
+  const [invoiceEmail, setInvoiceEmail] = useState(user?.email || '');
 
   const [voucherCode, setVoucherCode] = useState('');
   const [voucherDiscount, setVoucherDiscount] = useState(0);
@@ -651,6 +658,15 @@ export const CheckoutPage: React.FC = () => {
           pointsToRedeem,
           paymentMethod,
           notes,
+          invoiceInfo: requireInvoice
+            ? {
+                required: true,
+                companyName: invoiceCompanyName.trim(),
+                taxId: invoiceTaxId.trim(),
+                companyAddress: invoiceCompanyAddress.trim(),
+                invoiceEmail: (invoiceEmail || customerEmail).trim(),
+              }
+            : { required: false },
         }),
       });
       const snapshotItems = cart.map((c) => ({
@@ -730,6 +746,17 @@ export const CheckoutPage: React.FC = () => {
                   : getPaymentOption(confirmedOrder.paymentMethod).labelEn}
               </span>
             </div>
+            {confirmedOrder.invoiceInfo?.required && (
+              <div className="mt-2 pt-2 border-t border-[#202020]/10 dark:border-white/10 text-xs space-y-0.5">
+                <p className="font-bold text-[#00552B] dark:text-[#C6A667] flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>{t('Thông tin xuất Hóa đơn VAT Công ty:', 'Company VAT Invoice Requested:')}</span>
+                </p>
+                <p>{confirmedOrder.invoiceInfo.companyName} · MST: <span className="font-mono font-bold">{confirmedOrder.invoiceInfo.taxId}</span></p>
+                <p className="text-[#202020]/75 dark:text-[#F1EFEA]/75">{confirmedOrder.invoiceInfo.companyAddress}</p>
+                <p className="text-[#202020]/75 dark:text-[#F1EFEA]/75">Email e-Invoice: {confirmedOrder.invoiceInfo.invoiceEmail}</p>
+              </div>
+            )}
           </div>
 
           <PaymentQRPanel
@@ -757,6 +784,7 @@ export const CheckoutPage: React.FC = () => {
                     shippingFee: confirmedOrder.shippingFee ?? 0,
                     total: confirmedOrder.total,
                     items: confirmedItems,
+                    invoiceInfo: confirmedOrder.invoiceInfo,
                   },
                   lang,
                   formatPrice,
@@ -815,6 +843,102 @@ export const CheckoutPage: React.FC = () => {
               <label className="block text-xs font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 mb-1">{t('Ghi chú đơn hàng', 'Order Notes')}</label>
               <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-white dark:bg-[#0E1512] border border-[#202020]/15 dark:border-white/15 rounded px-3 py-2" />
             </div>
+          </div>
+
+          {/* Company VAT Invoice Card */}
+          <div className="bg-white dark:bg-[#16221C] rounded-xl border border-[#202020]/10 dark:border-white/10 p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#00552B]/10 dark:bg-[#C6A667]/15 text-[#00552B] dark:text-[#C6A667] flex items-center justify-center shrink-0 mt-0.5">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-[#202020] dark:text-[#F1EFEA]">
+                    {t('Xuất hóa đơn công ty (VAT)', 'Company VAT E-Invoice')}
+                  </h2>
+                  <p className="text-xs text-[#202020]/65 dark:text-[#F1EFEA]/65">
+                    {t(
+                      'Hóa đơn điện tử GTGT được phát hành và gửi qua email sau khi đơn hàng được xác nhận.',
+                      'Electronic VAT invoice will be issued and emailed once your order is confirmed.'
+                    )}
+                  </p>
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none shrink-0 pt-0.5">
+                <input
+                  type="checkbox"
+                  checked={requireInvoice}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setRequireInvoice(checked);
+                    if (checked && !invoiceEmail && customerEmail) {
+                      setInvoiceEmail(customerEmail);
+                    }
+                  }}
+                  className="w-4 h-4 accent-[#00552B] rounded cursor-pointer"
+                />
+                <span className="text-xs font-bold text-[#00552B] dark:text-[#C6A667]">
+                  {t('Xuất hóa đơn', 'Request VAT')}
+                </span>
+              </label>
+            </div>
+
+            {requireInvoice && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-[#202020]/10 dark:border-white/10 text-sm">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 mb-1">
+                    {t('Tên công ty / Đơn vị xuất hóa đơn *', 'Company / Organization Name *')}
+                  </label>
+                  <input
+                    type="text"
+                    required={requireInvoice}
+                    value={invoiceCompanyName}
+                    onChange={(e) => setInvoiceCompanyName(e.target.value)}
+                    placeholder={t('Ví dụ: Công ty TNHH Cà Phê Bản Lĩnh ROAR', 'e.g. ROAR Coffee Co., Ltd.')}
+                    className="w-full bg-white dark:bg-[#0E1512] border border-[#202020]/15 dark:border-white/15 rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 mb-1">
+                    {t('Mã số thuế (MST) *', 'Tax Identification Number (MST) *')}
+                  </label>
+                  <input
+                    type="text"
+                    required={requireInvoice}
+                    value={invoiceTaxId}
+                    onChange={(e) => setInvoiceTaxId(e.target.value)}
+                    placeholder={t('vd: 0312345678 hoặc 0312345678-001', 'e.g. 0312345678')}
+                    className="w-full bg-white dark:bg-[#0E1512] border border-[#202020]/15 dark:border-white/15 rounded px-3 py-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 mb-1">
+                    {t('Email nhận hóa đơn điện tử *', 'E-Invoice Recipient Email *')}
+                  </label>
+                  <input
+                    type="email"
+                    required={requireInvoice}
+                    value={invoiceEmail || customerEmail}
+                    onChange={(e) => setInvoiceEmail(e.target.value)}
+                    placeholder="ketoan@congty.vn"
+                    className="w-full bg-white dark:bg-[#0E1512] border border-[#202020]/15 dark:border-white/15 rounded px-3 py-2"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 mb-1">
+                    {t('Địa chỉ công ty (theo Giấy phép kinh doanh) *', 'Registered Business Address *')}
+                  </label>
+                  <input
+                    type="text"
+                    required={requireInvoice}
+                    value={invoiceCompanyAddress}
+                    onChange={(e) => setInvoiceCompanyAddress(e.target.value)}
+                    placeholder={t('Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP', 'Street, Ward, District, City')}
+                    className="w-full bg-white dark:bg-[#0E1512] border border-[#202020]/15 dark:border-white/15 rounded px-3 py-2"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-white dark:bg-[#16221C] rounded-xl border border-[#202020]/10 dark:border-white/10 p-6 space-y-4">
@@ -1769,6 +1893,22 @@ export const OrderTrackPage: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                  {Boolean(order.require_invoice) && (
+                    <div className="rounded-lg bg-[#FFFBF2] dark:bg-[#0E1512] border border-[#C6A667]/40 p-3 text-xs space-y-0.5">
+                      <p className="font-bold text-[#00552B] dark:text-[#C6A667] flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>{t('Yêu cầu Hóa đơn VAT Công ty', 'Company VAT Invoice Requested')}</span>
+                      </p>
+                      <p>
+                        {order.invoice_company_name} · MST:{' '}
+                        <span className="font-mono font-bold">{order.invoice_tax_id}</span>
+                      </p>
+                      <p className="text-[#202020]/70 dark:text-[#F1EFEA]/70">
+                        {order.invoice_company_address}
+                        {order.invoice_email ? ` · ${order.invoice_email}` : ''}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-3 font-bold pt-3 border-t border-[#202020]/10 dark:border-white/10">
                     <div className="flex items-center gap-3">
                       <span>{t('Tổng đơn', 'Total')}:</span>
@@ -1794,6 +1934,15 @@ export const OrderTrackPage: React.FC = () => {
                             shippingFee: order.shipping_fee,
                             total: order.total,
                             items: order.items || [],
+                            invoiceInfo: order.require_invoice
+                              ? {
+                                  required: true,
+                                  companyName: order.invoice_company_name,
+                                  taxId: order.invoice_tax_id,
+                                  companyAddress: order.invoice_company_address,
+                                  invoiceEmail: order.invoice_email,
+                                }
+                              : { required: false },
                           },
                           lang,
                           formatPrice,

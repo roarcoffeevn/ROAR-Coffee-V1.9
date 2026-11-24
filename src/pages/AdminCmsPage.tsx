@@ -397,7 +397,9 @@ export const AdminCmsPage: React.FC = () => {
           (o.customer_email || '').toLowerCase().includes(q) ||
           (o.customer_phone || '').toLowerCase().includes(q) ||
           hitPhone ||
-          (o.tracking_code || '').toLowerCase().includes(q);
+          (o.tracking_code || '').toLowerCase().includes(q) ||
+          (o.invoice_company_name || '').toLowerCase().includes(q) ||
+          (o.invoice_tax_id || '').toLowerCase().includes(q);
         const hitItem = (o.items || []).some(
           (it: any) =>
             (it.sku || '').toLowerCase().includes(q) ||
@@ -1768,6 +1770,17 @@ export const AdminCmsPage: React.FC = () => {
                               <p className="text-[11px] text-slate-500 line-clamp-2 bg-slate-50 p-1.5 rounded border border-slate-200/60">
                                 {o.notes}
                               </p>
+                            )}
+                            {Boolean(o.require_invoice) && (
+                              <div className="text-[11px] bg-amber-50/80 border border-amber-200/80 rounded p-2 space-y-0.5 text-slate-700">
+                                <span className="inline-block px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900 font-bold text-[10px]">
+                                  {t('Xuất Hóa Đơn VAT', 'VAT Invoice')}
+                                </span>
+                                <p className="font-semibold text-slate-900">{o.invoice_company_name}</p>
+                                <p className="font-mono text-[10px]">MST: {o.invoice_tax_id}</p>
+                                <p className="text-[10px] text-slate-600 line-clamp-2">{o.invoice_company_address}</p>
+                                {o.invoice_email && <p className="text-[10px] text-slate-600">{o.invoice_email}</p>}
+                              </div>
                             )}
                           </div>
 

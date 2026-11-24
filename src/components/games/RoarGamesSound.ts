@@ -103,6 +103,175 @@ class RoarGameSoundEngine {
       this.playTone(n, 0.22, 'triangle', 0.08, idx * 0.09);
     });
   }
+
+  private lofiTimer: number | null = null;
+  private lofiStep = 0;
+  private noiseSource: AudioBufferSourceNode | null = null;
+  private noiseGain: GainNode | null = null;
+  public lofiActive = false;
+
+  cubeWhoosh(combo = 1) {
+    const base = 440 + Math.min(combo, 10) * 42;
+    this.playTone(base, 0.075, 'sine', 0.055, 0);
+    this.playTone(base * 1.45, 0.11, 'triangle', 0.05, 0.03);
+  }
+
+  cubeWhooshChill(combo = 1) {
+    // Soft warm marimba / wooden ceramic ASMR tap
+    const pentatonic = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33];
+    const freq = pentatonic[(combo - 1) % pentatonic.length] || 329.63;
+    this.playTone(freq, 0.14, 'sine', 0.048, 0);
+    this.playTone(freq * 2, 0.09, 'sine', 0.018, 0.02);
+  }
+
+  chillBell() {
+    this.playTone(528, 0.65, 'sine', 0.06, 0);
+    this.playTone(792, 0.55, 'sine', 0.04, 0.12);
+    this.playTone(1056, 0.75, 'sine', 0.035, 0.25);
+  }
+
+  cubeBlocked() {
+    this.playTone(170, 0.09, 'sawtooth', 0.045, 0);
+    this.playTone(125, 0.11, 'triangle', 0.05, 0.04);
+  }
+
+  cubeSmash() {
+    this.playTone(260, 0.08, 'square', 0.06, 0);
+    this.playTone(740, 0.12, 'triangle', 0.06, 0.03);
+  }
+
+  cubeShuffle() {
+    [440, 554.37, 659.25, 880].forEach((f, idx) => {
+      this.playTone(f, 0.07, 'sine', 0.045, idx * 0.045);
+    });
+  }
+
+  coinClink() {
+    this.playTone(987.77, 0.08, 'sine', 0.055, 0);
+    this.playTone(1318.51, 0.14, 'sine', 0.06, 0.055);
+  }
+
+  private playLofiChord() {
+    if (!this.lofiActive || this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    // Warm jazz progression: Cmaj9 -> Am9 -> Fmaj7 -> G6
+    const chords = [
+      [261.63, 329.63, 392.0, 493.88, 587.33],
+      [220.0, 261.63, 329.63, 392.0, 493.88],
+      [174.61, 220.0, 261.63, 329.63, 440.0],
+      [196.0, 246.94, 293.66, 329.63, 440.0],
+    ];
+    const chord = chords[this.lofiStep % chords.length];
+    this.lofiStep += 1;
+
+    const now = ctx.currentTime;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(520, now);
+
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.linearRampToValueAtTime(0.032, now + 0.35);
+    master.gain.exponentialRampToValueAtTime(0.001, now + 2.35);
+
+    filter.connect(master);
+    master.connect(ctx.destination);
+
+    chord.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.04);
+      osc.connect(filter);
+      osc.start(now + idx * 0.04);
+      osc.stop(now + 2.45);
+    });
+  }
+
+  startLofi(): boolean {
+    if (this.lofiActive) return true;
+    const prevMuted = this.muted;
+    if (prevMuted) this.muted = false;
+    const ctx = this.ensureContext();
+    if (!ctx) return false;
+
+    this.lofiActive = true;
+    this.lofiStep = 0;
+
+    // Soft cafe rain / espresso ambient noise bed
+    try {
+      const bufferSize = ctx.sampleRate * 2;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      let lastOut = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        output[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = output[i];
+        output[i] *= 2.4;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 680;
+      filter.Q.value = 0.7;
+
+      const nGain = ctx.createGain();
+      nGain.gain.value = 0.015;
+
+      src.connect(filter);
+      filter.connect(nGain);
+      nGain.connect(ctx.destination);
+      src.start();
+      this.noiseSource = src;
+      this.noiseGain = nGain;
+    } catch {
+      // ignore noise fallback
+    }
+
+    this.playLofiChord();
+    this.lofiTimer = window.setInterval(() => {
+      this.playLofiChord();
+    }, 2400);
+    return true;
+  }
+
+  stopLofi() {
+    this.lofiActive = false;
+    if (this.lofiTimer !== null) {
+      window.clearInterval(this.lofiTimer);
+      this.lofiTimer = null;
+    }
+    if (this.noiseSource) {
+      try {
+        this.noiseSource.stop();
+        this.noiseSource.disconnect();
+      } catch {
+        // ignore
+      }
+      this.noiseSource = null;
+    }
+    if (this.noiseGain) {
+      try {
+        this.noiseGain.disconnect();
+      } catch {
+        // ignore
+      }
+      this.noiseGain = null;
+    }
+  }
+
+  toggleLofi(): boolean {
+    if (this.lofiActive) {
+      this.stopLofi();
+      return false;
+    }
+    return this.startLofi();
+  }
 }
 
 export const gameSound = new RoarGameSoundEngine();

@@ -62,11 +62,29 @@ export function dispatchOrderConfirmationEmail(opts: {
   totalVnd: number;
   paymentMethod: string;
   memberCode?: string;
+  invoiceInfo?: {
+    required?: boolean;
+    companyName?: string;
+    taxId?: string;
+    companyAddress?: string;
+    invoiceEmail?: string;
+  };
 }): void {
   if (!process.env.RESEND_API_KEY?.trim()) return;
   if (!opts.customerEmail || !opts.customerEmail.includes('@')) return;
 
   const formattedTotal = `${Number(opts.totalVnd || 0).toLocaleString('vi-VN')} ₫`;
+  const vatBlock = opts.invoiceInfo?.required
+    ? `
+      <div style="background:#FFFBF2;border:1px solid #C6A667;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:12.5px;">
+        <div style="font-weight:700;color:#003D25;margin-bottom:4px;">Yêu cầu Xuất Hóa Đơn VAT Công Ty</div>
+        <div><strong>Đơn vị:</strong> ${escapeEmailHtml(opts.invoiceInfo.companyName || '')}</div>
+        <div><strong>Mã số thuế (MST):</strong> ${escapeEmailHtml(opts.invoiceInfo.taxId || '')}</div>
+        <div><strong>Địa chỉ GPKD:</strong> ${escapeEmailHtml(opts.invoiceInfo.companyAddress || '')}</div>
+        <div><strong>Email nhận hóa đơn:</strong> ${escapeEmailHtml(opts.invoiceInfo.invoiceEmail || opts.customerEmail)}</div>
+      </div>
+    `
+    : '';
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:580px;margin:0 auto;border:1px solid #e5e0d5;border-radius:10px;overflow:hidden;color:#202020;">
       <div style="background:#003D25;color:#F8F5EF;padding:20px 24px;">
@@ -82,6 +100,7 @@ export function dispatchOrderConfirmationEmail(opts: {
           <div><strong>Phương thức:</strong> ${escapeEmailHtml(opts.paymentMethod.toUpperCase())}</div>
           ${opts.memberCode ? `<div><strong>Mã thành viên ROAR:</strong> ${escapeEmailHtml(opts.memberCode)}</div>` : ''}
         </div>
+        ${vatBlock}
         <p style="font-size:12.5px;color:#555;">Bạn có thể tra cứu tiến trình giao hàng trực tiếp tại mục <em>Tra cứu đơn hàng</em> trên website ROAR COFFEE®.</p>
       </div>
     </div>
