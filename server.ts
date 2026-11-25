@@ -18,6 +18,8 @@ import {
   verifyPassword,
 } from './server/auth.ts';
 import { db, initDatabase, logAudit } from './server/db.ts';
+import { attachRealtimeWebSocketServer, registerRealtimeSagaRoutes } from './server/realtimeSaga.ts';
+import { hashBackupCode, verifyTotpCode } from './server/totp.ts';
 import { dispatchB2BInquiryEmail, dispatchOrderConfirmationEmail } from './server/mailer.ts';
 import { buildLiveShippingTracking } from './src/lib/shippingTracking.ts';
 import {
@@ -377,6 +379,37 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
 
+  if (user.totp_enabled) {
+    const totpCode = String(req.body?.totpCode || '').trim();
+    const backupCode = String(req.body?.backupCode || '').trim();
+    if (!totpCode && !backupCode) {
+      res.json({ requires2FA: true, email: user.email });
+      return;
+    }
+    let passed2fa = false;
+    if (totpCode && verifyTotpCode(String(user.totp_secret || ''), totpCode)) {
+      passed2fa = true;
+    } else if (backupCode) {
+      const targetHash = hashBackupCode(backupCode);
+      let hashes: string[] = [];
+      try {
+        hashes = JSON.parse(user.totp_backup_codes_json || '[]');
+      } catch {
+        hashes = [];
+      }
+      const matchIdx = Array.isArray(hashes) ? hashes.indexOf(targetHash) : -1;
+      if (matchIdx >= 0) {
+        passed2fa = true;
+        const nextHashes = hashes.filter((_h, idx) => idx !== matchIdx);
+        db.prepare('UPDATE users SET totp_backup_codes_json = ? WHERE id = ?').run(JSON.stringify(nextHashes), user.id);
+      }
+    }
+    if (!passed2fa) {
+      res.status(401).json({ error: 'Mã xác thực 2FA hoặc mã dự phòng không hợp lệ.' });
+      return;
+    }
+  }
+
   const syncedTier = syncUserTierInDb(user.id);
   const token = signSessionToken({ userId: user.id, email: user.email, role: user.role });
   setSessionCookie(req, res, token);
@@ -395,6 +428,7 @@ app.post('/api/auth/login', (req, res) => {
       memberCode: user.member_code,
       tier: syncedTier,
       emailVerified: Boolean(user.email_verified),
+      totpEnabled: Boolean(user.totp_enabled),
       companyName: user.company_name,
       b2bVerified: Boolean(user.b2b_verified),
     },
@@ -775,6 +809,7 @@ app.get('/api/auth/me', (req: AuthedRequest, res) => {
       memberCode: user.member_code,
       tier: syncedTier,
       emailVerified: Boolean(user.email_verified),
+      totpEnabled: Boolean(user.totp_enabled),
       addresses: JSON.parse(user.addresses_json || '[]'),
       notificationPrefs: JSON.parse(user.notification_prefs_json || '{}'),
       privacyPrefs: JSON.parse(user.privacy_prefs_json || '{}'),
@@ -3039,13 +3074,130 @@ app.get('/api/admin/overview', requirePermission('overview'), (_req, res) => {
   const revRow = db
     .prepare("SELECT COALESCE(SUM(total), 0) as revenue, COUNT(*) as totalOrders, COALESCE(AVG(total), 0) as aov FROM orders WHERE order_status != 'Cancelled'")
     .get() as { revenue: number; totalOrders: number; aov: number };
-  const memberCount = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'customer'").get() as { c: number }).c;
+  const completedOrders = (db.prepare("SELECT COUNT(*) as c FROM orders WHERE order_status = 'Completed'").get() as { c: number }).c;
+  const pendingOrders = (db.prepare("SELECT COUNT(*) as c FROM orders WHERE order_status IN ('Pending', 'Confirmed', 'Processing', 'Shipping')").get() as { c: number }).c;
+  const memberCount = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role != 'admin'").get() as { c: number }).c;
   const b2bCount = (db.prepare('SELECT COUNT(*) as c FROM b2b_inquiries').get() as { c: number }).c;
+  const newsletterCount = (db.prepare('SELECT COUNT(*) as c FROM newsletter_subscribers').get() as { c: number }).c;
   const productCount = (db.prepare('SELECT COUNT(*) as c FROM products').get() as { c: number }).c;
+  const activeProducts = (db.prepare("SELECT COUNT(*) as c FROM products WHERE status = 'active'").get() as { c: number }).c;
   const articleCount = (db.prepare('SELECT COUNT(*) as c FROM journal_articles').get() as { c: number }).c;
   const mediaCount = (db.prepare('SELECT COUNT(*) as c FROM media_assets').get() as { c: number }).c;
   const issuedPts = (db.prepare("SELECT COALESCE(SUM(points), 0) as s FROM points_ledger WHERE entry_type IN ('earn_available','admin_adjustment') AND points > 0").get() as { s: number }).s;
   const redeemedPts = (db.prepare("SELECT COALESCE(SUM(ABS(points)), 0) as s FROM points_ledger WHERE entry_type = 'redeem'").get() as { s: number }).s;
+  const gameSummary = db
+    .prepare('SELECT COUNT(*) as totalPlays, COUNT(DISTINCT user_id) as gamePlayers FROM game_plays')
+    .get() as { totalPlays: number; gamePlayers: number };
+  const gameClaimsCount = (db.prepare('SELECT COUNT(*) as c FROM game_reward_claims').get() as { c: number }).c;
+
+  // 30-day padded daily series
+  const ordersDailyRows = db
+    .prepare(`
+      SELECT substr(created_at, 1, 10) as d,
+             COALESCE(SUM(CASE WHEN order_status != 'Cancelled' THEN total ELSE 0 END), 0) as revenue,
+             COUNT(*) as orders
+      FROM orders
+      WHERE date(created_at) >= date('now', '-29 days')
+      GROUP BY substr(created_at, 1, 10)
+    `)
+    .all() as Array<{ d: string; revenue: number; orders: number }>;
+  const playsDailyRows = db
+    .prepare(`
+      SELECT play_date as d, COUNT(*) as plays
+      FROM game_plays
+      WHERE play_date >= date('now', '-29 days')
+      GROUP BY play_date
+    `)
+    .all() as Array<{ d: string; plays: number }>;
+  const membersDailyRows = db
+    .prepare(`
+      SELECT substr(created_at, 1, 10) as d, COUNT(*) as cnt
+      FROM users
+      WHERE role != 'admin' AND date(created_at) >= date('now', '-29 days')
+      GROUP BY substr(created_at, 1, 10)
+    `)
+    .all() as Array<{ d: string; cnt: number }>;
+
+  const ordersDailyMap = new Map(ordersDailyRows.map((r) => [r.d, r]));
+  const playsDailyMap = new Map(playsDailyRows.map((r) => [r.d, r.plays]));
+  const membersDailyMap = new Map(membersDailyRows.map((r) => [r.d, r.cnt]));
+
+  const dailyTrend: Array<{
+    date: string;
+    label: string;
+    revenue: number;
+    orders: number;
+    gamePlays: number;
+    newMembers: number;
+  }> = [];
+  const nowDate = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(nowDate.getTime() - i * 86400000);
+    const iso = dt.toISOString().slice(0, 10);
+    const label = `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    const oRow = ordersDailyMap.get(iso);
+    dailyTrend.push({
+      date: iso,
+      label,
+      revenue: Number(oRow?.revenue || 0),
+      orders: Number(oRow?.orders || 0),
+      gamePlays: Number(playsDailyMap.get(iso) || 0),
+      newMembers: Number(membersDailyMap.get(iso) || 0),
+    });
+  }
+
+  const orderStatusBreakdown = db
+    .prepare('SELECT order_status as status, COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM orders GROUP BY order_status ORDER BY count DESC')
+    .all();
+
+  const categorySalesRows = db
+    .prepare(`
+      SELECT COALESCE(p.category, 'roasted') as category,
+             COALESCE(SUM(oi.quantity), 0) as unitsSold,
+             COALESCE(SUM(oi.line_total_vnd), 0) as revenue
+      FROM order_items oi
+      LEFT JOIN products p ON p.id = oi.product_id
+      GROUP BY COALESCE(p.category, 'roasted')
+    `)
+    .all() as Array<{ category: string; unitsSold: number; revenue: number }>;
+  const categoryCountRows = db
+    .prepare('SELECT category, COUNT(*) as productCount FROM products GROUP BY category')
+    .all() as Array<{ category: string; productCount: number }>;
+  const categorySalesMap = new Map(categorySalesRows.map((r) => [r.category, r]));
+  const categoryMix = categoryCountRows.map((c) => {
+    const s = categorySalesMap.get(c.category);
+    return {
+      category: c.category,
+      productCount: Number(c.productCount || 0),
+      unitsSold: Number(s?.unitsSold || 0),
+      revenue: Number(s?.revenue || 0),
+    };
+  });
+
+  const paymentBreakdown = db
+    .prepare('SELECT payment_method as method, COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM orders GROUP BY payment_method ORDER BY count DESC')
+    .all();
+
+  const memberTiers = db
+    .prepare("SELECT tier, COUNT(*) as count FROM users WHERE role != 'admin' GROUP BY tier ORDER BY count DESC")
+    .all();
+
+  const b2bStatusBreakdown = db
+    .prepare('SELECT status, COUNT(*) as count FROM b2b_inquiries GROUP BY status ORDER BY count DESC')
+    .all();
+
+  const topGames = db
+    .prepare(`
+      SELECT game_key,
+             COUNT(*) as plays,
+             SUM(CASE WHEN reward_id IS NOT NULL THEN 1 ELSE 0 END) as wins
+      FROM game_plays
+      GROUP BY game_key
+      ORDER BY plays DESC
+      LIMIT 6
+    `)
+    .all();
+
   const productPerf = db
     .prepare(`
       SELECT sku, product_name_vi, product_name_en, SUM(quantity) as units_sold, SUM(line_total_vnd) as revenue
@@ -3055,6 +3207,15 @@ app.get('/api/admin/overview', requirePermission('overview'), (_req, res) => {
       LIMIT 8
     `)
     .all();
+
+  const recentOrders = db
+    .prepare('SELECT id, order_number, customer_name, total, order_status, payment_status, created_at FROM orders ORDER BY id DESC LIMIT 6')
+    .all();
+
+  const lowStockProducts = db
+    .prepare("SELECT id, sku, name_vi, name_en, inventory, category FROM products WHERE status = 'active' AND inventory <= 15 ORDER BY inventory ASC LIMIT 5")
+    .all();
+
   const auditLogs = db.prepare('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 40').all();
 
   res.json({
@@ -3062,15 +3223,31 @@ app.get('/api/admin/overview', requirePermission('overview'), (_req, res) => {
       revenue: revRow.revenue,
       totalOrders: revRow.totalOrders,
       avgOrderValue: Math.round(revRow.aov),
+      completedOrders,
+      pendingOrders,
       members: memberCount,
       b2bInquiries: b2bCount,
+      newsletterCount,
       products: productCount,
+      activeProducts,
       articles: articleCount,
       mediaAssets: mediaCount,
       pointsIssued: issuedPts,
       pointsRedeemed: redeemedPts,
+      totalGamePlays: Number(gameSummary.totalPlays || 0),
+      gamePlayers: Number(gameSummary.gamePlayers || 0),
+      gameClaims: gameClaimsCount,
     },
+    dailyTrend,
+    orderStatusBreakdown,
+    categoryMix,
+    paymentBreakdown,
+    memberTiers,
+    b2bStatusBreakdown,
+    topGames,
     productPerformance: productPerf,
+    recentOrders,
+    lowStockProducts,
     auditLogs,
   });
 });
@@ -3750,13 +3927,14 @@ app.get('/api/games', (req: AuthedRequest, res) => {
          WHEN 'wheel' THEN 1
          WHEN 'blockblast' THEN 2
          WHEN 'cubeaway' THEN 3
-         WHEN 'shake' THEN 4
-         WHEN 'fortune' THEN 5
-         WHEN 'quiz' THEN 6
-         WHEN 'memory' THEN 7
-         WHEN 'harvest' THEN 8
-         WHEN 'mystery' THEN 9
-         ELSE 10
+         WHEN 'candysaga' THEN 4
+         WHEN 'shake' THEN 5
+         WHEN 'fortune' THEN 6
+         WHEN 'quiz' THEN 7
+         WHEN 'memory' THEN 8
+         WHEN 'harvest' THEN 9
+         WHEN 'mystery' THEN 10
+         ELSE 11
        END`
     )
     .all() as any[];
@@ -3827,7 +4005,7 @@ app.post('/api/games/play', requireAuth, (req: AuthedRequest, res) => {
   const gameKey = String(req.body?.gameKey || '').trim() as GameKey;
   const useExtraPoints = Boolean(req.body?.useExtraPoints);
   const score = Math.max(0, Math.floor(Number(req.body?.score || 0)));
-  const validKeys: GameKey[] = ['wheel', 'blockblast', 'cubeaway', 'quiz', 'memory', 'harvest', 'mystery', 'shake', 'fortune'];
+  const validKeys: GameKey[] = ['wheel', 'blockblast', 'cubeaway', 'candysaga', 'quiz', 'memory', 'harvest', 'mystery', 'shake', 'fortune'];
   if (!validKeys.includes(gameKey)) {
     res.status(400).json({ error: 'Mini-game không hợp lệ.' });
     return;
@@ -3877,7 +4055,7 @@ app.post('/api/games/play', requireAuth, (req: AuthedRequest, res) => {
         );
       }
 
-      if ((gameKey === 'harvest' || gameKey === 'blockblast' || gameKey === 'cubeaway') && score < Number(cfg.min_score_to_win || 0)) {
+      if ((gameKey === 'harvest' || gameKey === 'blockblast' || gameKey === 'cubeaway' || gameKey === 'candysaga') && score < Number(cfg.min_score_to_win || 0)) {
         db.prepare(`
           INSERT INTO game_plays (user_id, game_key, play_date, used_points, score, reward_id, claim_id)
           VALUES (?, ?, ?, ?, ?, NULL, NULL)
@@ -4805,6 +4983,8 @@ app.post('/api/cubeaway/friends/gift', requireAuth, (req: AuthedRequest, res) =>
   }
 });
 
+registerRealtimeSagaRoutes(app);
+
 app.get('/api/admin/games', requirePermission('promotions'), (_req, res) => {
   const configs = db.prepare('SELECT * FROM game_configs ORDER BY game_key ASC').all();
   const rewards = db.prepare('SELECT * FROM game_rewards ORDER BY game_key ASC, slot_order ASC, id ASC').all();
@@ -5030,13 +5210,14 @@ app.get('/api/admin/games/analytics', requirePermission('promotions'), (req, res
          WHEN 'wheel' THEN 1
          WHEN 'blockblast' THEN 2
          WHEN 'cubeaway' THEN 3
-         WHEN 'shake' THEN 4
-         WHEN 'fortune' THEN 5
-         WHEN 'quiz' THEN 6
-         WHEN 'memory' THEN 7
-         WHEN 'harvest' THEN 8
-         WHEN 'mystery' THEN 9
-         ELSE 10
+         WHEN 'candysaga' THEN 4
+         WHEN 'shake' THEN 5
+         WHEN 'fortune' THEN 6
+         WHEN 'quiz' THEN 7
+         WHEN 'memory' THEN 8
+         WHEN 'harvest' THEN 9
+         WHEN 'mystery' THEN 10
+         ELSE 11
        END`
     )
     .all() as any[];
@@ -5978,6 +6159,7 @@ app.get('/api/health', (_req, res) => {
 // ---------- VITE / STATIC SERVING ----------
 async function startServer() {
   const httpServer = http.createServer(app);
+  attachRealtimeWebSocketServer(httpServer);
   const distDir = path.resolve(process.cwd(), 'dist');
   const useProdStatic = IS_PROD && fs.existsSync(distDir);
   const disableHmr = process.env.DISABLE_HMR === 'true';

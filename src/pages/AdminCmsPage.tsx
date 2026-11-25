@@ -66,6 +66,7 @@ import { AdminMenuCategoryManager } from '../components/admin/AdminMenuCategoryM
 import { AdminHeroBannerManager } from '../components/admin/AdminHeroBannerManager';
 import { AdminGamesManager } from '../components/admin/AdminGamesManager';
 import { ResetPasswordModal, type ResetPasswordTarget } from '../components/admin/ResetPasswordModal';
+import { AdminOverviewDashboard } from '../components/admin/AdminOverviewDashboard';
 
 type CmsSection = AdminPermission | 'menus' | 'hero' | 'games';
 
@@ -1073,156 +1074,17 @@ export const AdminCmsPage: React.FC = () => {
         <main className="flex-1 p-2.5 sm:p-6 max-w-[1440px] w-full mx-auto space-y-3 sm:space-y-6">
           {/* 1. OVERVIEW DASHBOARD */}
           {resolvedSection === 'overview' && hasAdminPermission(user, 'overview') && (
-            <div className="space-y-3.5 sm:space-y-6">
-              {/* Quick Actions */}
-              <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-900">
-                    {t('Hệ thống Quản trị ROAR COFFEE', 'ROAR COFFEE CMS Workspace')}
-                  </h2>
-                  <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                    {t(
-                      'Quản lý trang con, bài viết, hình ảnh, sản phẩm và đơn hàng trực tuyến.',
-                      'Manage subpages, posts, media library, catalog, and orders.'
-                    )}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 text-xs">
-                  {hasAdminPermission(user, 'pages') && (
-                    <button
-                      type="button"
-                      onClick={() => selectSection('pages')}
-                      className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <FileEdit className="w-3.5 h-3.5 text-[#00552B]" />
-                      {t('Sửa Trang con', 'Subpages')}
-                    </button>
-                  )}
-                  {hasAdminPermission(user, 'posts') && (
-                    <button
-                      type="button"
-                      onClick={() => selectSection('posts')}
-                      className="px-3 py-2 rounded-lg bg-[#00552B] text-white font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      {t('Bài viết', 'Posts')}
-                    </button>
-                  )}
-                  {hasAdminPermission(user, 'media') && (
-                    <button
-                      type="button"
-                      onClick={() => selectSection('media')}
-                      className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      {t('Thư viện ảnh', 'Media')}
-                    </button>
-                  )}
-                  {hasAdminPermission(user, 'products') && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingProduct(null);
-                        selectSection('products');
-                        setProductModalOpen(true);
-                      }}
-                      className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      {t('Thêm Sản phẩm', 'New Product')}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {overview && (
-                <>
-                  {/* KPI Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-                    <div className="bg-white p-3 sm:p-5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] sm:text-xs font-medium text-slate-500">{t('Tổng doanh thu', 'Total Revenue')}</span>
-                      <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums mt-0.5 sm:mt-1 text-slate-900 truncate">
-                        {Number(overview.metrics?.revenue || 0).toLocaleString()} ₫
-                      </p>
-                      <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1 tabular-nums truncate">
-                        {t('TB đơn:', 'Avg:')} {Number(overview.metrics?.avgOrderValue || 0).toLocaleString()} ₫
-                      </p>
-                    </div>
-                    <div className="bg-white p-3 sm:p-5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] sm:text-xs font-medium text-slate-500">{t('Đơn hàng & TV', 'Orders & Users')}</span>
-                      <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums mt-0.5 sm:mt-1 text-slate-900">
-                        {overview.metrics.totalOrders} {t('đơn', 'orders')}
-                      </p>
-                      <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1 tabular-nums truncate">
-                        {overview.metrics.members} {t('TV', 'mbr')} · {overview.metrics.pointsIssued} {t('điểm', 'pts')}
-                      </p>
-                    </div>
-                    <div className="bg-white p-3 sm:p-5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] sm:text-xs font-medium text-slate-500">{t('Sản phẩm & Bài', 'Catalog & Posts')}</span>
-                      <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums mt-0.5 sm:mt-1 text-slate-900">
-                        {overview.metrics.products} SP · {overview.metrics.articles} {t('bài', 'posts')}
-                      </p>
-                      <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1 tabular-nums truncate">
-                        {overview.metrics.mediaAssets} {t('ảnh tải lên', 'media')}
-                      </p>
-                    </div>
-                    <div className="bg-white p-3 sm:p-5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] sm:text-xs font-medium text-slate-500">{t('Yêu cầu B2B', 'B2B Leads')}</span>
-                      <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums mt-0.5 sm:mt-1 text-slate-900">
-                        {overview.metrics.b2bInquiries}
-                      </p>
-                      <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1 truncate">
-                        {t('OEM, Xuất khẩu & Sỉ', 'OEM & Export')}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Performance + Audit Logs */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 sm:gap-6">
-                    <div className="bg-white p-3.5 sm:p-5 rounded-xl border border-slate-200 space-y-2.5 sm:space-y-3 overflow-x-auto">
-                      <h2 className="text-sm font-bold text-slate-900">
-                        {t('Sản phẩm bán chạy theo doanh số', 'Top Selling Products')}
-                      </h2>
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-left text-slate-500 border-b border-slate-100">
-                            <th className="py-2 pr-2">{t('SKU', 'SKU')}</th>
-                            <th className="py-2 pr-2">{t('Sản phẩm', 'Product')}</th>
-                            <th className="py-2 text-right">{t('SL', 'Qty')}</th>
-                            <th className="py-2 text-right">{t('Doanh thu', 'Revenue')}</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {(overview.productPerformance || []).map((row: any) => (
-                            <tr key={row.sku}>
-                              <td className="py-2 pr-2 font-mono text-[#00552B] font-semibold">{row.sku}</td>
-                              <td className="py-2 pr-2 truncate max-w-[140px] sm:max-w-none">{lang === 'en' ? row.product_name_en : row.product_name_vi || row.product_name_en}</td>
-                              <td className="py-2 text-right tabular-nums">{row.units_sold}</td>
-                              <td className="py-2 text-right font-mono tabular-nums whitespace-nowrap">{row.revenue.toLocaleString()} ₫</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="bg-white p-3.5 sm:p-5 rounded-xl border border-slate-200 space-y-2.5 sm:space-y-3">
-                      <h2 className="text-sm font-bold text-slate-900">{t('Nhật ký thao tác quản trị', 'System Activity Log')}</h2>
-                      <div className="max-h-60 sm:max-h-72 overflow-y-auto divide-y divide-slate-100 text-xs">
-                        {(overview.auditLogs || []).map((log: any) => (
-                          <div key={log.id} className="py-2 flex justify-between gap-2">
-                            <div className="min-w-0">
-                              <span className="font-mono font-semibold text-[#00552B]">{log.action}</span> · {log.entity_type} #{log.entity_id}
-                              <p className="text-slate-500 truncate">{log.actor_email}</p>
-                            </div>
-                            <span className="text-slate-400 font-mono text-[10px] sm:text-[11px] shrink-0 tabular-nums">{String(log.created_at || '').slice(5, 16)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+            <AdminOverviewDashboard
+              overview={overview}
+              user={user}
+              onRefresh={loadAll}
+              onSelectSection={selectSection}
+              onCreateNewProduct={() => {
+                setEditingProduct(null);
+                selectSection('products');
+                setProductModalOpen(true);
+              }}
+            />
           )}
 
           {/* 1B. STOREFRONT SUBPAGES EDITOR (TRANG CON WEBSITE) */}

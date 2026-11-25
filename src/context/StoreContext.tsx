@@ -83,6 +83,7 @@ export interface AuthUser {
   memberCode: string;
   tier: string;
   emailVerified: boolean;
+  totpEnabled?: boolean;
   addresses?: any[];
   notificationPrefs?: Record<string, boolean>;
   privacyPrefs?: Record<string, boolean>;

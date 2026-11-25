@@ -63,6 +63,7 @@ import {
   type LightingMoodId,
   type SpecialEventSpec,
 } from '../../lib/cubeAwayData';
+import { AdaptiveLogo } from '../AdaptiveLogo';
 import { CubeAway3DCanvas, type CubeAnimEvent, type CubeAway3DHandle } from './CubeAway3DCanvas';
 import { gameSound } from './RoarGamesSound';
 
@@ -73,6 +74,7 @@ interface CubeAway3DGameProps {
   remainingFreeToday: number;
   isSignedIn: boolean;
   userPoints: number;
+  onSaveProgress?: (payload: { currentLevel: number; maxLevel: number; bestScore: number }) => void;
   onPlayReal: (useExtraPoints: boolean, score: number) => Promise<any>;
   onRequireLogin: () => void;
   onDemoResult: (reward: GameRewardRecord) => void;
@@ -194,6 +196,7 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
   remainingFreeToday,
   isSignedIn,
   userPoints,
+  onSaveProgress,
   onPlayReal,
   onRequireLogin,
   onDemoResult,
@@ -472,7 +475,14 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
           });
           if (res.ok) {
             const d = await res.json();
-            if (d.profile) setProfile(d.profile);
+            if (d.profile) {
+              setProfile(d.profile);
+              onSaveProgress?.({
+                currentLevel: Math.max(1, d.profile.current_level || 1),
+                maxLevel: Math.max(1, d.profile.max_level || 1),
+                bestScore: Math.max(finalScore, d.profile.total_score || finalScore),
+              });
+            }
             if (d.dailyRoarPoints > 0 || d.eventBonusRoarPts > 0) {
               refreshUser().catch(() => {});
             }
@@ -1084,24 +1094,37 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
         : tr(`Cấp ${levelSpec.levelNumber}`, `Level ${levelSpec.levelNumber}`);
 
   return (
-    <div className="space-y-4">
-      {/* Compact Character & Wallet Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div className="p-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-[#00552B] text-white flex items-center justify-center text-lg shrink-0 shadow-sm">
+    <div className="space-y-2.5 sm:space-y-3">
+      {/* Mobile 1-Line Compact Summary Strip */}
+      <div className="sm:hidden flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 text-[11px] font-bold tabular-nums">
+        <span className="inline-flex items-center gap-1 min-w-0">
+          <span className="w-6 h-6 rounded-md bg-[#00552B] text-white inline-flex items-center justify-center text-xs shrink-0">
+            {getAvatarEmoji(profile.avatar_badge)}
+          </span>
+          <span className="text-[#111111] dark:text-[#F8F5EF] whitespace-nowrap">Lv.{profile.level}</span>
+        </span>
+        <span className="text-[#B45309] dark:text-[#FBBF24] whitespace-nowrap">🪙 {profile.coins.toLocaleString()}</span>
+        <span className="text-[#00552B] dark:text-[#4ADE80] whitespace-nowrap">🔥 {profile.streak_days}d</span>
+        <span className="text-[#111111] dark:text-[#F8F5EF] whitespace-nowrap">🏆 {profile.total_score.toLocaleString()}</span>
+      </div>
+
+      {/* Desktop/Tablet Character & Wallet Summary Strip */}
+      <div className="hidden sm:grid sm:grid-cols-4 gap-2">
+        <div className="px-2.5 py-1.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-[#00552B] text-white flex items-center justify-center text-sm shrink-0 shadow-sm">
             {getAvatarEmoji(profile.avatar_badge)}
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold text-[#111111] dark:text-[#F8F5EF] truncate">
               Lv.{profile.level} {tr('Bậc Thầy', 'Master')}
             </div>
-            <div className="h-1.5 w-full rounded bg-black/10 dark:bg-white/10 mt-1 overflow-hidden">
+            <div className="h-1.5 w-full rounded bg-black/10 dark:bg-white/10 mt-0.5 overflow-hidden">
               <div className="h-full bg-[#C6A667] transition-all" style={{ width: `${xpPct}%` }} />
             </div>
           </div>
         </div>
 
-        <div className="p-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
+        <div className="px-2.5 py-1.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#202020]/60 dark:text-[#F1EFEA]/60 font-bold">
               {tr('Cube Coins', 'Cube Coins')}
@@ -1110,10 +1133,10 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
               {profile.coins.toLocaleString()}
             </div>
           </div>
-          <Coins className="w-5 h-5 text-[#F59E0B] shrink-0" />
+          <Coins className="w-4 h-4 text-[#F59E0B] shrink-0" />
         </div>
 
-        <div className="p-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
+        <div className="px-2.5 py-1.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#202020]/60 dark:text-[#F1EFEA]/60 font-bold">
               {tr('Chuỗi Ngày', 'Streak')}
@@ -1122,10 +1145,10 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
               {profile.streak_days} {tr('ngày', 'days')}
             </div>
           </div>
-          <Flame className="w-5 h-5 text-[#EF4444] shrink-0" />
+          <Flame className="w-4 h-4 text-[#EF4444] shrink-0" />
         </div>
 
-        <div className="p-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
+        <div className="px-2.5 py-1.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#202020]/60 dark:text-[#F1EFEA]/60 font-bold">
               {tr('Tổng Điểm 3D', '3D Score')}
@@ -1134,12 +1157,12 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
               {profile.total_score.toLocaleString()}
             </div>
           </div>
-          <Trophy className="w-5 h-5 text-[#C6A667] shrink-0" />
+          <Trophy className="w-4 h-4 text-[#C6A667] shrink-0" />
         </div>
       </div>
 
       {/* 3D Interactive Studio Viewport (Zero backdrop-blur overlays over WebGL canvas) */}
-      <div className="relative h-[370px] sm:h-[440px] w-full rounded-2xl overflow-hidden border border-[#C6A667]/35 bg-[#0F172A] shadow-lg select-none">
+      <div className="relative h-[340px] sm:h-[440px] w-full rounded-2xl overflow-hidden border border-[#C6A667]/35 bg-[#0F172A] shadow-lg select-none">
         <CubeAway3DCanvas
           ref={canvasRef}
           blocks={blocks}
@@ -1168,17 +1191,20 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
 
         {/* Top Studio HUD Strip */}
         {!cinemaMode && (
-          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-2 pointer-events-none">
-            <div className="flex items-center gap-1.5 pointer-events-auto flex-wrap">
-              <div className="px-2.5 py-1.5 rounded-lg bg-[#090D16]/85 border border-white/15 text-white text-xs font-bold flex items-center gap-1.5">
-                <Box className="w-3.5 h-3.5 text-[#C6A667]" />
+          <div className="absolute top-2 left-2 right-2 sm:top-2.5 sm:left-2.5 sm:right-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
+            <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto flex-wrap min-w-0">
+              <div className="hidden sm:flex px-2 py-1 rounded-lg bg-[#090D16]/85 border border-[#C6A667]/35 items-center">
+                <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" />
+              </div>
+              <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#090D16]/85 border border-white/15 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 whitespace-nowrap">
+                <Box className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#C6A667]" />
                 <span>{currentModeBadge}</span>
               </div>
-              <div className="px-2.5 py-1.5 rounded-lg bg-[#090D16]/85 border border-white/15 text-white text-xs font-bold tabular-nums">
-                {tr(`Còn ${blocks.length} khối`, `${blocks.length} cubes`)}
+              <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#090D16]/85 border border-white/15 text-white text-[11px] sm:text-xs font-bold tabular-nums whitespace-nowrap">
+                {blocks.length} <span className="hidden sm:inline">{tr('khối', 'cubes')}</span>
               </div>
               <div
-                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 tabular-nums ${
+                className={`px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold flex items-center gap-1 tabular-nums whitespace-nowrap ${
                   chillMode
                     ? 'bg-[#00552B]/90 border-emerald-400/50 text-emerald-100'
                     : mistakesRemaining <= 2
@@ -1187,26 +1213,26 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
                 }`}
                 title={chillMode ? tr('Chế độ Chill: Không giới hạn lỗi', 'Chill Mode: Unlimited mistakes') : tr('Lượt chạm nhầm còn lại', 'Remaining mistake shield')}
               >
-                {chillMode ? <Coffee className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
-                <span>{chillMode ? '∞ Zen' : mistakesRemaining}</span>
+                {chillMode ? <Coffee className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Shield className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                <span>{chillMode ? '∞' : mistakesRemaining}</span>
               </div>
-              <div className="px-2.5 py-1.5 rounded-lg bg-[#090D16]/85 border border-[#C6A667]/40 text-[#FDE047] text-xs font-extrabold tabular-nums">
+              <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#090D16]/85 border border-[#C6A667]/40 text-[#FDE047] text-[11px] sm:text-xs font-extrabold tabular-nums whitespace-nowrap">
                 {sessionScore} {combo >= 2 ? `· x${combo}` : ''}
               </div>
             </div>
 
-            <div className="flex items-center gap-1 pointer-events-auto">
+            <div className="flex items-center gap-1 pointer-events-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setAutoRotate((v) => !v)}
-                className={`p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
                   autoRotate
                     ? 'bg-[#C6A667] border-[#C6A667] text-[#111111]'
                     : 'bg-[#090D16]/85 border-white/15 text-white/90 hover:bg-[#1E293B]'
                 }`}
                 title={tr('Tự xoay 3D', 'Auto-rotate 3D')}
               >
-                <RotateCw className="w-4 h-4" />
+                <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
               <button
                 type="button"
@@ -1218,10 +1244,10 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
                     setLofiOn(false);
                   }
                 }}
-                className="p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
+                className="p-1.5 sm:p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
                 title={tr('Bật/tắt âm thanh', 'Toggle sound')}
               >
-                {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                {muted ? <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
               </button>
               <button
                 type="button"
@@ -1237,18 +1263,18 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
                         : generateSolvableCubeLevel({ mode: 'campaign', levelNumber: levelSpec.levelNumber });
                   startStage(regenerated, profile);
                 }}
-                className="p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
+                className="p-1.5 sm:p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
                 title={tr('Chơi lại màn này', 'Restart stage')}
               >
-                <RotateCcw className="w-4 h-4" />
+                <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setCinemaMode(true)}
-                className="p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
+                className="p-1.5 sm:p-2 rounded-lg bg-[#090D16]/85 border border-white/15 text-white/90 hover:bg-[#1E293B] cursor-pointer"
                 title={tr('Ẩn HUD để ngắm khối 3D', 'Cinema / Zen view')}
               >
-                <EyeOff className="w-4 h-4" />
+                <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             </div>
           </div>
@@ -1360,6 +1386,9 @@ export const CubeAway3DGame: React.FC<CubeAway3DGameProps> = ({
         {stageResult && (
           <div className="absolute inset-0 bg-[#090D16]/90 flex items-center justify-center p-4 z-20">
             <div className="w-full max-w-sm rounded-2xl bg-[#111827] border border-[#C6A667]/50 p-5 text-center text-white space-y-3.5 shadow-2xl">
+              <div className="flex justify-center">
+                <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" />
+              </div>
               {stageResult.status === 'won' ? (
                 <>
                   <div className="flex items-center justify-center gap-1.5">

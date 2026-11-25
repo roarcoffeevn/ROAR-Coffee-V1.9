@@ -10,44 +10,144 @@ function escapeHtml(raw: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-function triggerHiddenIframePrint(htmlDocument: string): boolean {
+function triggerHiddenIframePrint(htmlDocument: string, isVi = true, filenameBase = 'ROAR-Document'): boolean {
   if (typeof document === 'undefined') return false;
-  const existing = document.getElementById('roar-print-frame') as HTMLIFrameElement | null;
+  const existing = document.getElementById('roar-print-overlay');
   if (existing) existing.remove();
+
+  // Inject @media print helper once so direct fallback printing hides app chrome cleanly
+  let printStyle = document.getElementById('roar-print-media-style') as HTMLStyleElement | null;
+  if (!printStyle) {
+    printStyle = document.createElement('style');
+    printStyle.id = 'roar-print-media-style';
+    printStyle.textContent = `
+      @media print {
+        body > *:not(#roar-print-direct-sheet) { display: none !important; }
+        #roar-print-direct-sheet { display: block !important; position: static !important; width: 100% !important; background: #fff !important; color: #111 !important; padding: 0 !important; margin: 0 !important; }
+      }
+      #roar-print-direct-sheet { display: none; }
+    `;
+    document.head.appendChild(printStyle);
+  }
+
+  // Prepare sanitized direct-DOM print sheet fallback (strip head/style into isolated container)
+  const existingDirect = document.getElementById('roar-print-direct-sheet');
+  if (existingDirect) existingDirect.remove();
+  const directSheet = document.createElement('div');
+  directSheet.id = 'roar-print-direct-sheet';
+  const bodyMatch = htmlDocument.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const styleMatch = htmlDocument.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  if (styleMatch?.[1]) {
+    const scoped = document.createElement('style');
+    scoped.textContent = styleMatch[1];
+    directSheet.appendChild(scoped);
+  }
+  const contentWrap = document.createElement('div');
+  contentWrap.innerHTML = bodyMatch?.[1] || htmlDocument;
+  directSheet.appendChild(contentWrap);
+  document.body.appendChild(directSheet);
+
+  // Build visible Print Preview & Save PDF Modal
+  const overlay = document.createElement('div');
+  overlay.id = 'roar-print-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.style.cssText =
+    'position:fixed;inset:0;z-index:99999;background:rgba(10,16,13,0.78);backdrop-filter:blur(4px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;';
+
+  const card = document.createElement('div');
+  card.style.cssText =
+    'width:100%;max-width:860px;height:min(90vh,860px);background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.45);border:1px solid rgba(198,166,103,0.45);';
+
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText =
+    'display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:#003D25;color:#F8F5EF;border-bottom:1px solid rgba(198,166,103,0.3);';
+
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;';
+  titleEl.textContent = isVi ? 'ROAR COFFEE® · Xem trước & In / Lưu PDF' : 'ROAR COFFEE® · Print Preview & Save PDF';
+
+  const btnGroup = document.createElement('div');
+  btnGroup.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;';
 
   const iframe = document.createElement('iframe');
   iframe.id = 'roar-print-frame';
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  iframe.setAttribute('aria-hidden', 'true');
-  document.body.appendChild(iframe);
+  iframe.title = titleEl.textContent;
+  iframe.style.cssText = 'flex:1;width:100%;border:0;background:#fff;';
+  iframe.srcdoc = htmlDocument;
 
-  const doc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!doc || !iframe.contentWindow) {
-    iframe.remove();
-    return false;
-  }
-
-  doc.open();
-  doc.write(htmlDocument);
-  doc.close();
-
-  const runPrint = () => {
+  const printBtn = document.createElement('button');
+  printBtn.type = 'button';
+  printBtn.textContent = isVi ? '🖨 In / Lưu PDF' : '🖨 Print / Save PDF';
+  printBtn.style.cssText =
+    'padding:8px 14px;border-radius:8px;border:0;background:#C6A667;color:#111111;font-weight:800;font-size:12px;cursor:pointer;';
+  printBtn.onclick = () => {
     try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } finally {
-      window.setTimeout(() => {
-        iframe.remove();
-      }, 2500);
+      if (iframe.contentWindow) {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        return;
+      }
+    } catch {
+      // fallback to top-level print sheet
+    }
+    try {
+      window.focus();
+      window.print();
+    } catch {
+      // ignore
     }
   };
 
-  window.setTimeout(runPrint, 180);
+  const downloadBtn = document.createElement('button');
+  downloadBtn.type = 'button';
+  downloadBtn.textContent = isVi ? '⬇ Tải Hóa Đơn (.html)' : '⬇ Download (.html)';
+  downloadBtn.style.cssText =
+    'padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.1);color:#fff;font-weight:700;font-size:12px;cursor:pointer;';
+  downloadBtn.onclick = () => {
+    const blob = new Blob([htmlDocument], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filenameBase.replace(/[^a-zA-Z0-9_-]/g, '-')}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = isVi ? 'Đóng' : 'Close';
+  closeBtn.style.cssText =
+    'padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#F8F5EF;font-weight:600;font-size:12px;cursor:pointer;';
+
+  const cleanup = () => {
+    window.removeEventListener('keydown', onKeyDown);
+    overlay.remove();
+    directSheet.remove();
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') cleanup();
+  };
+  window.addEventListener('keydown', onKeyDown);
+
+  closeBtn.onclick = cleanup;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) cleanup();
+  };
+
+  btnGroup.appendChild(printBtn);
+  btnGroup.appendChild(downloadBtn);
+  btnGroup.appendChild(closeBtn);
+  toolbar.appendChild(titleEl);
+  toolbar.appendChild(btnGroup);
+  card.appendChild(toolbar);
+  card.appendChild(iframe);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
   return true;
 }
 
@@ -243,7 +343,7 @@ export function printOrderInvoice(
 </body>
 </html>`;
 
-  return triggerHiddenIframePrint(html);
+  return triggerHiddenIframePrint(html, isVi, `ROAR-Invoice-${order.orderNumber || 'Order'}`);
 }
 
 export function printB2BQuoteSheet(opts: {
@@ -367,5 +467,5 @@ export function printB2BQuoteSheet(opts: {
 </body>
 </html>`;
 
-  return triggerHiddenIframePrint(html);
+  return triggerHiddenIframePrint(html, isVi, `ROAR-B2B-Quote-${mode}-${today}`);
 }

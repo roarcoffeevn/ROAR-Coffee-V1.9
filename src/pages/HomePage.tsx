@@ -1,6 +1,34 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Award, ChevronDown, ChevronLeft, ChevronRight, Compass, Flame, Gift, Globe2, PackageCheck, Pause, Play, ShoppingBag } from 'lucide-react';
+import {
+  ArrowRight,
+  Award,
+  Box,
+  Brain,
+  Candy,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Disc3,
+  Flame,
+  Gamepad2,
+  Gift,
+  Globe2,
+  HelpCircle,
+  LayoutGrid,
+  PackageCheck,
+  PackageOpen,
+  Pause,
+  Play,
+  ScrollText,
+  ShoppingBag,
+  Smartphone,
+  Sparkles,
+  Sprout,
+  Trophy,
+} from 'lucide-react';
+import type { GameKey } from '../lib/gamesCatalog';
 import { AdaptiveLogo } from '../components/AdaptiveLogo';
 import { MediaImage } from '../components/MediaImage';
 import { VietnamOriginMap } from '../components/VietnamOriginMap';
@@ -10,6 +38,208 @@ import { localizeCoffeeType, localizeJournalCategory } from '../lib/i18nHelpers'
 import { getPromoVoucherImage } from '../lib/media';
 import { parseHeroMetrics, parseHeroSlides } from '../lib/heroBanners';
 import { fetchJournalWithFallback, fetchProductsWithFallback, fetchPromotionsWithFallback } from '../lib/staticFallback';
+
+interface HomeGameShowcaseItem {
+  key: GameKey;
+  titleVi: string;
+  titleEn: string;
+  shortVi: string;
+  shortEn: string;
+  badgeVi: string;
+  badgeEn: string;
+  descVi: string;
+  descEn: string;
+  highlightVi: string;
+  highlightEn: string;
+  rewardVi: string;
+  rewardEn: string;
+  accentGradient: string;
+  iconBg: string;
+  icon: React.ReactNode;
+}
+
+const HOME_GAMES_SHOWCASE: HomeGameShowcaseItem[] = [
+  {
+    key: 'candysaga',
+    titleVi: 'ROAR Candy Saga · Phiên Bản Sấm Chớp',
+    titleEn: 'ROAR Candy Saga · Lightning Edition',
+    shortVi: 'Candy Saga',
+    shortEn: 'Candy Saga',
+    badgeVi: 'HOT · MATCH-3 CHUẨN SAGA',
+    badgeEn: 'HOT · SAGA MATCH-3',
+    descVi: 'Nối kẹo 8 hướng & đổi chéo đầy chiến thuật. Kích hoạt tia laser sọc ngang/dọc, kẹo bọc nổ 2 nhịp, bom màu cầu vồng, phá lớp băng & Sugar Crush bùng nổ!',
+    descEn: '8-direction & diagonal swap match-3 action. Trigger sweeping striped lasers, double-blast wrapped candies, color bombs, jelly shatter & Sugar Crush finale!',
+    highlightVi: '10+ màn độ khó tăng dần · Gợi ý & lưu tiến trình từng màn',
+    highlightEn: '10+ progressive stages · Smart hints & saved stage progress',
+    rewardVi: 'Điểm thưởng + Mã giảm giá + Quà ROAR COFFEE',
+    rewardEn: 'Bonus points + Vouchers + ROAR COFFEE gifts',
+    accentGradient: 'from-[#3B102F] via-[#1B0D2B] to-[#081F15]',
+    iconBg: 'bg-pink-500/20 text-pink-300 border-pink-400/40',
+    icon: <Candy className="w-5 h-5" />,
+  },
+  {
+    key: 'cubeaway',
+    titleVi: 'ROAR Cube Away 3D · Giải Mã Khối Rubik',
+    titleEn: 'ROAR Cube Away 3D · Rubik Puzzle',
+    shortVi: 'Cube Away 3D',
+    shortEn: 'Cube Away 3D',
+    badgeVi: '3D TƯƠNG TÁC 360°',
+    badgeEn: '360° 3D PUZZLE',
+    descVi: 'Xoay tự do khối Rubik 3D không đế trong không gian 360°. Rung lắc khi chạm, dùng Búa đập hoặc Đảo hướng, bùng nổ pháo hoa rực rỡ khi hoàn thành màn!',
+    descEn: 'Rotate the floating 3D Rubik cluster freely in 360°. Tactile hover shake, Hammer & Flip boosters, and celebratory fireworks on every clear!',
+    highlightVi: 'Rung lắc xúc giác · Combo liên hoàn & pháo hoa chiến thắng',
+    highlightEn: 'Tactile hover shake · Chain combos & victory fireworks',
+    rewardVi: 'Lưu cấp độ tự động + Quà tặng & Điểm thành viên',
+    rewardEn: 'Auto level save + Member points & vouchers',
+    accentGradient: 'from-[#0A2D24] via-[#071D17] to-[#17211D]',
+    iconBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40',
+    icon: <Box className="w-5 h-5" />,
+  },
+  {
+    key: 'blockblast',
+    titleVi: 'ROAR Block Blast · Xếp Khối Nổ Combo',
+    titleEn: 'ROAR Block Blast · Combo Puzzle',
+    shortVi: 'Block Blast',
+    shortEn: 'Block Blast',
+    badgeVi: 'COMBO LIÊN HOÀN',
+    badgeEn: 'CHAIN COMBOS',
+    descVi: 'Kéo thả khối hạt cà phê vào bảng 8×8, xóa đồng thời nhiều hàng & cột để tích combo x2-x5 với hiệu ứng rung màn hình, chữ khen thưởng và pháo hoa.',
+    descEn: 'Drag coffee-block shapes onto an 8×8 grid, clear multiple lines at once to stack x2-x5 combos with screen shake, praise ribbons & fireworks.',
+    highlightVi: 'Độ khó tăng dần theo màn · Lưu điểm cao & level',
+    highlightEn: 'Progressive stages · Saved high scores & levels',
+    rewardVi: 'Điểm tích lũy + Ưu đãi đơn hàng ROAR',
+    rewardEn: 'Loyalty points + ROAR order perks',
+    accentGradient: 'from-[#2A210B] via-[#1B170A] to-[#081F15]',
+    iconBg: 'bg-amber-500/20 text-amber-300 border-amber-400/40',
+    icon: <LayoutGrid className="w-5 h-5" />,
+  },
+  {
+    key: 'wheel',
+    titleVi: 'Vòng Quay May Mắn ROAR Reserve',
+    titleEn: 'ROAR Reserve Lucky Wheel',
+    shortVi: 'Vòng Quay',
+    shortEn: 'Lucky Wheel',
+    badgeVi: 'QUAY LÀ TRÚNG',
+    badgeEn: 'INSTANT WIN',
+    descVi: 'Quay vòng quay 8 ô phần thưởng mỗi ngày để nhận ngay mã giảm giá trực tiếp, cộng điểm thành viên hoặc quà cà phê đặc sản.',
+    descEn: 'Spin the 8-slice prize wheel daily to win instant checkout promo codes, loyalty points, or specialty coffee gifts.',
+    highlightVi: '1 lượt miễn phí mỗi ngày + đổi điểm quay thêm',
+    highlightEn: '1 free daily spin + bonus point spins',
+    rewardVi: 'Voucher giảm giá & Quà cà phê thật 100%',
+    rewardEn: 'Real checkout vouchers & coffee prizes',
+    accentGradient: 'from-[#004A26] via-[#00311A] to-[#111915]',
+    iconBg: 'bg-[#C6A667]/25 text-[#F6DFA4] border-[#C6A667]/45',
+    icon: <Disc3 className="w-5 h-5" />,
+  },
+  {
+    key: 'shake',
+    titleVi: 'Lắc Điện Thoại Săn Lộc Cao Nguyên',
+    titleEn: 'Shake & Win Highland Drops',
+    shortVi: 'Lắc Điện Thoại',
+    shortEn: 'Shake & Win',
+    badgeVi: 'CẢM BIẾN LẮC MOBILE',
+    badgeEn: 'MOTION SHAKE',
+    descVi: 'Lắc nhẹ điện thoại hoặc bấm nút lắc túi cà phê để rơi ra những gói quà bí mật và điểm thưởng ngẫu nhiên mỗi ngày.',
+    descEn: 'Shake your phone or tap to rattle the coffee pouch and drop surprise reward packets and daily bonus points.',
+    highlightVi: 'Hỗ trợ cảm biến chuyển động & chạm nhanh',
+    highlightEn: 'Supports mobile motion sensor & quick tap',
+    rewardVi: 'Quà rơi ngẫu nhiên & Điểm thưởng ngay',
+    rewardEn: 'Instant drop rewards & bonus points',
+    accentGradient: 'from-[#0D3226] via-[#082119] to-[#141E1A]',
+    iconBg: 'bg-teal-500/20 text-teal-300 border-teal-400/40',
+    icon: <Smartphone className="w-5 h-5" />,
+  },
+  {
+    key: 'fortune',
+    titleVi: 'Xin Xăm Gu Cà Phê Đầu Ngày',
+    titleEn: 'Daily Coffee Fortune Stick',
+    shortVi: 'Xin Xăm',
+    shortEn: 'Fortune Stick',
+    badgeVi: 'QUẺ VUI & GỢI Ý GU',
+    badgeEn: 'FORTUNE & PAIRING',
+    descVi: 'Lắc ống xăm tre rút quẻ may mắn theo 7 cá tính hương vị ROAR kèm lời khuyên thưởng thức và quà tặng ẩn bên trong.',
+    descEn: 'Shake the bamboo cylinder to draw your daily fortune paired with ROAR tasting notes and hidden gift rewards.',
+    highlightVi: 'Quẻ thơ tiếng Việt/Anh + Gợi ý sản phẩm hợp gu',
+    highlightEn: 'Bilingual fortune notes + Smart coffee pairing',
+    rewardVi: 'Điểm thưởng + Mã ưu đãi hợp gu',
+    rewardEn: 'Bonus points + Tailored promo code',
+    accentGradient: 'from-[#2C1E0B] via-[#1C1308] to-[#0A1E15]',
+    iconBg: 'bg-orange-500/20 text-orange-300 border-orange-400/40',
+    icon: <ScrollText className="w-5 h-5" />,
+  },
+  {
+    key: 'quiz',
+    titleVi: 'Trắc Nghiệm Gu 7 Cá Tính Cà Phê',
+    titleEn: '7 Roast Personalities Taste Quiz',
+    shortVi: 'Gu 7 Cá Tính',
+    shortEn: 'Taste Quiz',
+    badgeVi: 'KHÁM PHÁ GU VỊ',
+    badgeEn: 'TASTE DISCOVERY',
+    descVi: 'Trả lời vài câu hỏi ngắn về thói quen uống cà phê để tìm ra dòng hạt hợp khẩu vị nhất trong 7 cá tính ROAR và nhận quà.',
+    descEn: 'Answer quick flavor-preference questions to discover your signature match across ROAR’s 7 coffee personalities and claim a gift.',
+    highlightVi: 'Gợi ý chính xác sản phẩm & thêm giỏ 1 chạm',
+    highlightEn: 'Personalized roast match + 1-tap add to cart',
+    rewardVi: 'Điểm thưởng + Voucher trải nghiệm vị mới',
+    rewardEn: 'Points + First-tasting voucher',
+    accentGradient: 'from-[#1D2B12] via-[#121D0B] to-[#0B1C14]',
+    iconBg: 'bg-lime-500/20 text-lime-300 border-lime-400/40',
+    icon: <HelpCircle className="w-5 h-5" />,
+  },
+  {
+    key: 'memory',
+    titleVi: 'Lật Thẻ Trí Nhớ Hạt Đặc Sản',
+    titleEn: 'Specialty Coffee Memory Match',
+    shortVi: 'Lật Thẻ',
+    shortEn: 'Memory Match',
+    badgeVi: 'RÈN TRÍ NHỚ',
+    badgeEn: 'BRAIN CHALLENGE',
+    descVi: 'Lật tìm các cặp thẻ dòng cà phê & dụng cụ pha chế trong thời gian ngắn nhất để mở khóa màn khó hơn và nhận thưởng.',
+    descEn: 'Flip and match pairs of specialty roast and brewing cards against the clock to unlock higher tiers and earn points.',
+    highlightVi: 'Nhiều cấp độ tăng dần · Lưu kỷ lục điểm',
+    highlightEn: 'Multi-level progression · Saved best score',
+    rewardVi: 'Điểm thành viên & Quà chinh phục',
+    rewardEn: 'Member points & milestone prizes',
+    accentGradient: 'from-[#0E2B35] via-[#0A1E26] to-[#0B1F16]',
+    iconBg: 'bg-sky-500/20 text-sky-300 border-sky-400/40',
+    icon: <Brain className="w-5 h-5" />,
+  },
+  {
+    key: 'harvest',
+    titleVi: 'Hứng Hạt Chín Mùa Thu Hoạch Cao Nguyên',
+    titleEn: 'Highland Cherry Harvest Catch',
+    shortVi: 'Hứng Hạt',
+    shortEn: 'Harvest',
+    badgeVi: 'PHẢN XẠ NHANH',
+    badgeEn: 'ARCADE CATCH',
+    descVi: 'Di chuyển giỏ mây hứng những trái cà phê chín mọng từ núi cao Lâm Đồng & Đắk Lắk, né vật cản để đạt điểm kỷ lục.',
+    descEn: 'Slide the woven basket to catch ripe highland coffee cherries from Lam Dong & Dak Lak while dodging obstacles.',
+    highlightVi: 'Điều khiển mượt trên cả chạm mobile & bàn phím',
+    highlightEn: 'Smooth touch & keyboard arcade controls',
+    rewardVi: 'Điểm thưởng theo thành tích & Quà mùa vụ',
+    rewardEn: 'Score-based points & harvest rewards',
+    accentGradient: 'from-[#2A1D0D] via-[#1B1208] to-[#081F15]',
+    iconBg: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40',
+    icon: <Sprout className="w-5 h-5" />,
+  },
+  {
+    key: 'mystery',
+    titleVi: 'Mở Hộp Bí Ẩn ROAR Treasure Box',
+    titleEn: 'ROAR Mystery Treasure Box',
+    shortVi: 'Hộp Bí Ẩn',
+    shortEn: 'Mystery Box',
+    badgeVi: 'RƯƠNG QUÀ BÍ MẬT',
+    badgeEn: 'MYSTERY PRIZES',
+    descVi: 'Chọn 1 trong 3 chiếc rương đồng-vàng để giải mã phần thưởng bất ngờ từ điểm tích lũy đến voucher giảm sâu.',
+    descEn: 'Pick one of three brass-and-gold chests to unbox surprise perks ranging from bonus points to deep checkout discounts.',
+    highlightVi: 'Mở rương hồi hộp · Trúng thưởng minh bạch',
+    highlightEn: 'Instant chest reveal · Verified rewards',
+    rewardVi: 'Voucher bí mật & Điểm thưởng ROAR',
+    rewardEn: 'Mystery vouchers & ROAR points',
+    accentGradient: 'from-[#2E2212] via-[#1A140B] to-[#0A1C14]',
+    iconBg: 'bg-[#C6A667]/25 text-[#F6DFA4] border-[#C6A667]/45',
+    icon: <PackageOpen className="w-5 h-5" />,
+  },
+];
 
 export const HomePage: React.FC = () => {
   const { lang, t, localePath } = useI18n();
@@ -27,6 +257,8 @@ export const HomePage: React.FC = () => {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [giftVouchers, setGiftVouchers] = useState<Product[]>([]);
   const [giftOpen, setGiftOpen] = useState(false);
+  const [gamesShowcaseOpen, setGamesShowcaseOpen] = useState(false);
+  const [selectedShowcaseGame, setSelectedShowcaseGame] = useState<GameKey>('candysaga');
   const [articles, setArticles] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [heroIdx, setHeroIdx] = useState(0);
@@ -257,9 +489,217 @@ export const HomePage: React.FC = () => {
       </section>
       )}
 
+      {/* INTERACTIVE CLICK-TO-EXPAND MINI-GAMES SHOWCASE LAUNCHER */}
+      <section className="max-w-[1280px] mx-auto px-5 sm:px-6 pt-5">
+        {(() => {
+          const activeShowcase =
+            HOME_GAMES_SHOWCASE.find((g) => g.key === selectedShowcaseGame) || HOME_GAMES_SHOWCASE[0];
+          const featuredQuickKeys: GameKey[] = ['candysaga', 'cubeaway', 'blockblast', 'wheel'];
+          return (
+            <div className="rounded-xl border border-[#00552B]/25 dark:border-[#C6A667]/35 bg-white dark:bg-[#16221C] shadow-xs overflow-hidden">
+              {/* Compact Launcher Row — Click any game icon or the bar to expand details */}
+              <div className="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGamesShowcaseOpen((v) => !v)}
+                  aria-expanded={gamesShowcaseOpen}
+                  className="flex-1 flex items-center justify-between gap-3 text-left hover:opacity-90 transition-opacity cursor-pointer min-w-[230px]"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-[#00552B] to-[#00331A] text-[#C6A667] border border-[#C6A667]/40 flex items-center justify-center shrink-0 shadow-xs">
+                      <Gamepad2 className="w-4.5 h-4.5" />
+                      <Sparkles className="w-2.5 h-2.5 text-amber-300 absolute -top-1 -right-1" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-[#202020] dark:text-[#F1EFEA] truncate">
+                        {t(
+                          'ROAR Play & Win · 10 Mini-Game Săn Quà & Điểm Thưởng',
+                          'ROAR Play & Win · 10 Interactive Reward Mini-Games'
+                        )}
+                      </p>
+                      <p className="text-[11px] text-[#202020]/65 dark:text-[#F1EFEA]/65 truncate">
+                        {t(
+                          'Bấm vào icon game hoặc thanh này để xem chi tiết: Candy Saga, Cube Away 3D, Block Blast…',
+                          'Click any game icon or this bar to preview Candy Saga, Cube Away 3D, Block Blast & more'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#00552B] dark:text-[#C6A667] shrink-0">
+                    <span className="hidden md:inline">
+                      {gamesShowcaseOpen ? t('Thu gọn', 'Collapse') : t('Xem giới thiệu', 'Explore Games')}
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 transition-transform duration-200 ${gamesShowcaseOpen ? 'rotate-180' : ''}`}
+                    />
+                  </span>
+                </button>
+
+                {/* Quick-Click Interactive Game Icons */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {featuredQuickKeys.map((gKey) => {
+                    const gItem = HOME_GAMES_SHOWCASE.find((item) => item.key === gKey);
+                    if (!gItem) return null;
+                    const isFocused = gamesShowcaseOpen && selectedShowcaseGame === gItem.key;
+                    return (
+                      <button
+                        key={gItem.key}
+                        type="button"
+                        onClick={() => {
+                          if (isFocused) {
+                            setGamesShowcaseOpen(false);
+                          } else {
+                            setSelectedShowcaseGame(gItem.key);
+                            setGamesShowcaseOpen(true);
+                          }
+                        }}
+                        title={lang === 'vi' ? gItem.titleVi : gItem.titleEn}
+                        aria-label={lang === 'vi' ? gItem.shortVi : gItem.shortEn}
+                        className={`group inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all cursor-pointer ${
+                          isFocused
+                            ? 'bg-[#00552B] text-[#C6A667] border-[#00552B] dark:bg-[#C6A667] dark:text-[#111111] dark:border-[#C6A667] shadow-xs'
+                            : 'bg-[#F8F5EF] dark:bg-[#0E1512] text-[#202020] dark:text-[#F1EFEA] border-[#202020]/12 dark:border-white/15 hover:border-[#00552B] dark:hover:border-[#C6A667]'
+                        }`}
+                      >
+                        <span className="shrink-0 transition-transform duration-200 group-hover:scale-110">
+                          {gItem.icon}
+                        </span>
+                        <span className="hidden sm:inline whitespace-nowrap">
+                          {lang === 'vi' ? gItem.shortVi : gItem.shortEn}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <Link
+                    to={localePath(`/play?game=${selectedShowcaseGame}`)}
+                    className="px-3 py-1.5 rounded-lg bg-[#C6A667] hover:bg-[#b59454] text-[#111111] text-xs font-bold inline-flex items-center gap-1 shrink-0 transition-colors whitespace-nowrap"
+                  >
+                    <span>{t('Chơi ngay', 'Play')}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              </div>
+
+              {/* Expanded Interactive Game Gallery & Spotlight */}
+              {gamesShowcaseOpen && (
+                <div className="p-4 sm:p-5 border-t border-[#202020]/10 dark:border-white/10 bg-[#F8F5EF]/70 dark:bg-[#0E1512]/70 space-y-4">
+                  {/* Interactive 10-Game Selector Grid/Strip */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                    {HOME_GAMES_SHOWCASE.map((gItem) => {
+                      const active = gItem.key === activeShowcase.key;
+                      return (
+                        <button
+                          key={gItem.key}
+                          type="button"
+                          onClick={() => setSelectedShowcaseGame(gItem.key)}
+                          className={`shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                            active
+                              ? 'bg-[#00552B] text-white border-[#00552B] dark:bg-[#C6A667] dark:text-[#111111] dark:border-[#C6A667] shadow-xs'
+                              : 'bg-white dark:bg-[#16221C] text-[#202020]/80 dark:text-[#F1EFEA]/80 border-[#202020]/10 dark:border-white/10 hover:border-[#00552B]/40 dark:hover:border-[#C6A667]/40'
+                          }`}
+                        >
+                          <span className="shrink-0">{gItem.icon}</span>
+                          <span>{lang === 'vi' ? gItem.shortVi : gItem.shortEn}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected Game Interactive Spotlight Card */}
+                  <div className="rounded-xl border border-[#202020]/10 dark:border-white/12 bg-white dark:bg-[#16221C] overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+                    <div
+                      className={`lg:col-span-5 bg-gradient-to-br ${activeShowcase.accentGradient} text-white p-5 sm:p-6 flex flex-col justify-between gap-5 relative overflow-hidden`}
+                    >
+                      <div className="flex items-center justify-between gap-2 relative z-10">
+                        <span className="text-[10px] font-bold tracking-[0.16em] uppercase text-[#C6A667]">
+                          {lang === 'vi' ? activeShowcase.badgeVi : activeShowcase.badgeEn}
+                        </span>
+                        <Trophy className="w-4 h-4 text-[#C6A667]/85 shrink-0" />
+                      </div>
+
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div
+                          className={`w-16 h-16 rounded-2xl border ${activeShowcase.iconBg} flex items-center justify-center shrink-0 shadow-lg [&_svg]:w-8 [&_svg]:h-8`}
+                        >
+                          {activeShowcase.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-lg sm:text-xl font-bold leading-snug text-white">
+                            {lang === 'vi' ? activeShowcase.titleVi : activeShowcase.titleEn}
+                          </h3>
+                          <p className="text-xs text-white/75 mt-1">
+                            {t('Lưu tiến trình tự động · Hỗ trợ Mobile & Desktop', 'Auto-saved progress · Mobile & Desktop ready')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-white/15 flex items-center justify-between gap-2 text-[11px] text-[#C6A667] relative z-10">
+                        <span className="font-semibold truncate">ROAR COFFEE · Play &amp; Win</span>
+                        <span className="font-mono tabular-nums text-white/75 shrink-0">
+                          {HOME_GAMES_SHOWCASE.findIndex((g) => g.key === activeShowcase.key) + 1} / {HOME_GAMES_SHOWCASE.length}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-7 p-5 sm:p-6 flex flex-col justify-between gap-4">
+                      <div className="space-y-3">
+                        <p className="text-sm text-[#202020]/85 dark:text-[#F1EFEA]/85 leading-relaxed">
+                          {lang === 'vi' ? activeShowcase.descVi : activeShowcase.descEn}
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <div className="p-3 rounded-lg bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/8 dark:border-white/10">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-[#00552B] dark:text-[#C6A667]">
+                              {t('Điểm nổi bật', 'Gameplay Highlights')}
+                            </p>
+                            <p className="text-xs font-medium text-[#202020] dark:text-[#F1EFEA] mt-1">
+                              {lang === 'vi' ? activeShowcase.highlightVi : activeShowcase.highlightEn}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/8 dark:border-white/10">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-[#00552B] dark:text-[#C6A667]">
+                              {t('Phần thưởng nhận được', 'Rewards')}
+                            </p>
+                            <p className="text-xs font-medium text-[#202020] dark:text-[#F1EFEA] mt-1">
+                              {lang === 'vi' ? activeShowcase.rewardVi : activeShowcase.rewardEn}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2.5 pt-2">
+                        <Link
+                          to={localePath(`/play?game=${activeShowcase.key}`)}
+                          className="px-4 py-2.5 rounded-lg bg-[#00552B] hover:bg-[#003D25] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
+                        >
+                          <Gamepad2 className="w-4 h-4 text-[#C6A667]" />
+                          <span>
+                            {t(
+                              `Chơi ${activeShowcase.shortVi} Ngay`,
+                              `Play ${activeShowcase.shortEn} Now`
+                            )}
+                          </span>
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          to={localePath('/play')}
+                          className="px-4 py-2.5 rounded-lg border border-[#00552B]/30 dark:border-[#C6A667]/35 text-[#00552B] dark:text-[#C6A667] hover:bg-[#00552B]/5 text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors"
+                        >
+                          <span>{t('Mở sảnh 10 Mini-Game', 'Open All 10 Games')}</span>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </section>
+
       {/* COMPACT COLLAPSIBLE GIFT VOUCHER BAR (50k - 100k - 500k - 1M) */}
       {giftVouchers.length > 0 && (
-        <section className="max-w-[1280px] mx-auto px-5 sm:px-6 pt-5">
+        <section className="max-w-[1280px] mx-auto px-5 sm:px-6 pt-3">
           <div className="rounded-xl border border-[#C6A667]/35 bg-white dark:bg-[#16221C] shadow-xs overflow-hidden">
             <div className="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3">
               <button

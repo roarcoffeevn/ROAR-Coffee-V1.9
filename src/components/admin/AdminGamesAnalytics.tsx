@@ -20,6 +20,7 @@ const SHORT_GAME_LABELS: Record<GameKey, string> = {
   wheel: 'Vòng Quay',
   blockblast: 'Block Blast',
   cubeaway: 'Cube Away 3D',
+  candysaga: 'Candy Saga',
   shake: 'Lắc Máy',
   fortune: 'Xin Xăm',
   quiz: 'Gu 7 Cá Tính',

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import type { GameConfigRecord, GameRewardRecord } from '../../lib/gamesCatalog';
 import type { Personality, Product } from '../../context/StoreContext';
 import { MediaImage } from '../MediaImage';
+import { AdaptiveLogo } from '../AdaptiveLogo';
 import { gameSound } from './RoarGamesSound';
 
 interface QuizQuestion {
@@ -168,8 +169,11 @@ export const PersonalityQuizGame: React.FC<PersonalityQuizGameProps> = ({
             />
           </div>
           <div className="space-y-2 sm:space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#00552B] dark:text-[#C6A667]">
-              {lang === 'en' ? 'YOUR ROAR COFFEE PERSONALITY' : 'CÁ TÍNH CÀ PHÊ ROAR CỦA BẠN'}
+            <div className="flex items-center gap-2 flex-wrap">
+              <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" />
+              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#00552B] dark:text-[#C6A667]">
+                {lang === 'en' ? 'YOUR ROAR COFFEE PERSONALITY' : 'CÁ TÍNH CÀ PHÊ ROAR CỦA BẠN'}
+              </div>
             </div>
             <h3 className="font-serif text-xl sm:text-2xl font-bold text-[#111111] dark:text-[#F8F5EF]">
               {persona ? (lang === 'en' ? `${persona.animal_en} Spirit` : `Linh Vật ${persona.animal_vi} (${persona.animal_en})`) : matchedSlug}
@@ -285,10 +289,13 @@ export const PersonalityQuizGame: React.FC<PersonalityQuizGameProps> = ({
   return (
     <div className="space-y-3.5 sm:space-y-5">
       <div className="space-y-1.5 sm:space-y-2">
-        <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-[#202020]/70 dark:text-[#F1EFEA]/70">
-          <span>
-            {lang === 'en' ? `Question ${step + 1} of ${QUIZ_QUESTIONS.length}` : `Câu hỏi ${step + 1} / ${QUIZ_QUESTIONS.length}`}
-          </span>
+        <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-[#202020]/70 dark:text-[#F1EFEA]/70 gap-2">
+          <div className="flex items-center gap-2">
+            <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" />
+            <span>
+              {lang === 'en' ? `Question ${step + 1} of ${QUIZ_QUESTIONS.length}` : `Câu hỏi ${step + 1} / ${QUIZ_QUESTIONS.length}`}
+            </span>
+          </div>
           <span className="tabular-nums text-[#00552B] dark:text-[#C6A667]">{progressPct}%</span>
         </div>
         <div className="w-full h-2 rounded-full bg-[#202020]/10 dark:bg-white/10 overflow-hidden">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Award, Bell, CheckCheck, Copy, Gamepad2, Gift, LogOut, PlusCircle, Printer, QrCode, RefreshCw, Shield, Sparkles, Tag, UserCheck, Wallet, X } from 'lucide-react';
+import { Award, Bell, CheckCheck, Cloud, Copy, Gamepad2, Gift, KeyRound, LogOut, PlusCircle, Printer, QrCode, RefreshCw, Shield, ShieldCheck, Sparkles, Tag, UserCheck, Wallet, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useStore } from '../context/StoreContext';
 import { localizeLedgerEntry, localizeOrderStatus, localizePaymentStatus, localizeVariantLabel } from '../lib/i18nHelpers';
@@ -73,6 +73,20 @@ export const AccountPage: React.FC = () => {
   const [newAddressLine, setNewAddressLine] = useState('');
   const [currPass, setCurrPass] = useState('');
   const [nextPass, setNextPass] = useState('');
+
+  // 2FA TOTP Login Challenge & Security Setup
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [totpLoginCode, setTotpLoginCode] = useState('');
+  const [useBackupLogin, setUseBackupLogin] = useState(false);
+  const [backupLoginCode, setBackupLoginCode] = useState('');
+  const [twoFaSetup, setTwoFaSetup] = useState<{ manualKey: string; otpauthUri: string; backupCodes: string[] } | null>(null);
+  const [twoFaVerifyCode, setTwoFaVerifyCode] = useState('');
+  const [twoFaDisablePass, setTwoFaDisablePass] = useState('');
+  const [twoFaDisableCode, setTwoFaDisableCode] = useState('');
+
+  // Cloud Backups
+  const [accountBackups, setAccountBackups] = useState<any[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const loadWallet = async () => {
     if (!user) return;
@@ -149,15 +163,26 @@ export const AccountPage: React.FC = () => {
     }
   };
 
+  const loadAccountBackups = async () => {
+    if (!user) return;
+    const res = await apiFetch('/api/account/backups');
+    if (res.ok) {
+      const d = await res.json();
+      setAccountBackups(d.backups || []);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadDashboard();
       loadWallet();
       loadGiftDispatches();
+      loadAccountBackups();
     } else {
       setDash(null);
       setWalletData(null);
       setGiftDispatches([]);
+      setAccountBackups([]);
     }
   }, [user]);
 
@@ -186,10 +211,23 @@ export const AccountPage: React.FC = () => {
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        totpCode: requires2FA && !useBackupLogin ? totpLoginCode.trim() : undefined,
+        backupCode: requires2FA && useBackupLogin ? backupLoginCode.trim() : undefined,
+      }),
     });
     const d = await res.json().catch(() => ({}));
+    if (res.ok && d.requires2FA) {
+      setRequires2FA(true);
+      showToast(t('Vui lòng nhập mã xác thực 2FA 6 số từ Authenticator.', 'Please enter your 6-digit Authenticator 2FA code.'));
+      return;
+    }
     if (res.ok && d.user) {
+      setRequires2FA(false);
+      setTotpLoginCode('');
+      setBackupLoginCode('');
       setAuthSession(d.user, d.token);
       showToast(t('Đăng nhập thành công', 'Signed in successfully'));
     } else {
@@ -524,14 +562,69 @@ export const AccountPage: React.FC = () => {
             <form onSubmit={handleLogin} className="space-y-4 text-sm">
               <div>
                 <label className="block text-xs font-medium mb-1">Email</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setRequires2FA(false);
+                  }}
+                  className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">{t('Mật khẩu', 'Password')}</label>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2" />
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2"
+                />
               </div>
+
+              {requires2FA && (
+                <div className="p-3.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#00552B]/30 dark:border-[#C6A667]/40 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-[#00552B] dark:text-[#C6A667] flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4" />
+                      {useBackupLogin ? t('Nhập Mã Dự Phòng 2FA', 'Enter 2FA Backup Code') : t('Xác Thực Hai Lớp (2FA TOTP)', 'Two-Factor Authentication (TOTP)')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setUseBackupLogin((v) => !v)}
+                      className="text-[11px] underline text-[#00552B] dark:text-[#C6A667] cursor-pointer"
+                    >
+                      {useBackupLogin ? t('Dùng mã 6 số', 'Use 6-digit TOTP') : t('Dùng mã dự phòng', 'Use backup code')}
+                    </button>
+                  </div>
+                  {useBackupLogin ? (
+                    <input
+                      type="text"
+                      required
+                      value={backupLoginCode}
+                      onChange={(e) => setBackupLoginCode(e.target.value.toUpperCase())}
+                      placeholder="ABCD-EF12"
+                      className="w-full border border-[#202020]/20 dark:border-white/20 dark:bg-[#16221C] rounded px-3 py-2 font-mono uppercase tracking-wider"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      inputMode="numeric"
+                      value={totpLoginCode}
+                      onChange={(e) => setTotpLoginCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="123456"
+                      className="w-full border border-[#202020]/20 dark:border-white/20 dark:bg-[#16221C] rounded px-3 py-2 font-mono text-center text-base tracking-[0.35em]"
+                    />
+                  )}
+                </div>
+              )}
+
               <button type="submit" className="w-full py-2.5 bg-[#00552B] text-white font-semibold rounded hover:bg-[#003D25] cursor-pointer">
-                {t('Đăng nhập', 'Sign In')}
+                {requires2FA ? t('Xác nhận 2FA & Đăng nhập', 'Verify 2FA & Sign In') : t('Đăng nhập', 'Sign In')}
               </button>
               <div className="flex items-center justify-between text-xs pt-1">
                 <button type="button" onClick={() => setAuthMode('forgot')} className="text-[#00552B] dark:text-[#C6A667] hover:underline cursor-pointer">
@@ -542,6 +635,7 @@ export const AccountPage: React.FC = () => {
                   onClick={() => {
                     setEmail('member@roarcoffee.vn');
                     setPassword('RoarMember!2026');
+                    setRequires2FA(false);
                   }}
                   className="text-[#202020]/65 dark:text-[#F1EFEA]/70 hover:text-[#00552B] dark:hover:text-[#C6A667] cursor-pointer"
                 >
@@ -1666,6 +1760,227 @@ export const AccountPage: React.FC = () => {
               <button type="button" onClick={requestAccountDeletion} className="px-4 py-2 border border-red-300 dark:border-red-500/40 text-red-700 dark:text-red-300 text-xs font-semibold rounded hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer">
                 {t('Yêu cầu xóa tài khoản', 'Request Account Deletion')}
               </button>
+            )}
+          </div>
+
+          {/* Two-Factor Authentication (2FA TOTP) */}
+          <div className="bg-white dark:bg-[#16221C] rounded-xl border border-[#202020]/10 dark:border-white/10 p-6 space-y-4 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#00552B] dark:text-[#C6A667]" />
+                <span>{t('Xác Thực Hai Lớp (2FA TOTP)', 'Two-Factor Authentication (2FA)')}</span>
+              </h2>
+              <span
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                  user.totpEnabled
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                }`}
+              >
+                {user.totpEnabled ? t('Đang Bật ✓', 'Enabled ✓') : t('Chưa Bật', 'Disabled')}
+              </span>
+            </div>
+
+            {user.totpEnabled ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const res = await apiFetch('/api/auth/2fa/disable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: twoFaDisablePass, code: twoFaDisableCode }),
+                  });
+                  const d = await res.json().catch(() => ({}));
+                  if (!res.ok) return showToast(d.error || 'Error');
+                  setTwoFaDisablePass('');
+                  setTwoFaDisableCode('');
+                  await refreshUser();
+                  showToast(t('Đã tắt xác thực hai lớp 2FA.', '2FA disabled.'));
+                }}
+                className="space-y-2.5 text-xs"
+              >
+                <p className="text-[#202020]/70 dark:text-[#F1EFEA]/70">
+                  {t('Tài khoản của bạn đang được bảo vệ bởi mã Authenticator TOTP.', 'Your account is protected by Authenticator TOTP.')}
+                </p>
+                <input
+                  type="password"
+                  required
+                  value={twoFaDisablePass}
+                  onChange={(e) => setTwoFaDisablePass(e.target.value)}
+                  placeholder={t('Mật khẩu hiện tại', 'Current password')}
+                  className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2"
+                />
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={twoFaDisableCode}
+                  onChange={(e) => setTwoFaDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={t('Mã 2FA 6 số từ Authenticator', '6-digit Authenticator code')}
+                  className="w-full border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2 font-mono"
+                />
+                <button type="submit" className="px-4 py-2 rounded border border-red-400/50 text-red-600 dark:text-red-300 font-semibold cursor-pointer">
+                  {t('Tắt Xác Thực 2FA', 'Disable 2FA')}
+                </button>
+              </form>
+            ) : !twoFaSetup ? (
+              <div className="space-y-3 text-xs">
+                <p className="text-[#202020]/70 dark:text-[#F1EFEA]/70 leading-relaxed">
+                  {t(
+                    'Kích hoạt 2FA bằng Google Authenticator / Authy để bảo vệ tuyệt đối tài khoản, điểm thưởng, ví ROAR và tiến trình game.',
+                    'Enable TOTP 2FA with Google Authenticator or Authy to protect your account, wallet, and cloud game saves.'
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await apiFetch('/api/auth/2fa/setup', { method: 'POST' });
+                    const d = await res.json().catch(() => ({}));
+                    if (!res.ok) return showToast(d.error || 'Error');
+                    setTwoFaSetup({ manualKey: d.manualKey, otpauthUri: d.otpauthUri, backupCodes: d.backupCodes || [] });
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#00552B] text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>{t('Thiết Lập 2FA Ngay', 'Setup 2FA Now')}</span>
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const res = await apiFetch('/api/auth/2fa/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: twoFaVerifyCode }),
+                  });
+                  const d = await res.json().catch(() => ({}));
+                  if (!res.ok) return showToast(d.error || 'Error');
+                  setTwoFaSetup(null);
+                  setTwoFaVerifyCode('');
+                  await refreshUser();
+                  showToast(t('Đã kích hoạt xác thực hai lớp 2FA thành công!', '2FA successfully enabled!'));
+                }}
+                className="space-y-3 text-xs"
+              >
+                <div className="p-3 rounded-lg bg-[#F8F5EF] dark:bg-[#0E1512] space-y-2">
+                  <div className="font-bold">{t('1. Nhập khóa bí mật vào Google Authenticator / Authy:', '1. Enter secret key in Authenticator app:')}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="font-mono font-bold text-[#00552B] dark:text-[#C6A667] break-all">{twoFaSetup.manualKey}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(twoFaSetup.manualKey);
+                        showToast(t('Đã sao chép khóa 2FA', '2FA key copied'));
+                      }}
+                      className="px-2 py-1 rounded border border-[#202020]/15 dark:border-white/15 shrink-0 cursor-pointer"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="font-bold pt-1">{t('2. Lưu 8 mã dự phòng dùng một lần:', '2. Save single-use backup codes:')}</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 font-mono text-[11px]">
+                    {twoFaSetup.backupCodes.map((bc) => (
+                      <span key={bc} className="px-2 py-1 rounded bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10 text-center">
+                        {bc}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={twoFaVerifyCode}
+                    onChange={(e) => setTwoFaVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder={t('Nhập mã 6 số để kích hoạt', 'Enter 6-digit code')}
+                    className="flex-1 border border-[#202020]/15 dark:border-white/15 dark:bg-[#0E1512] rounded px-3 py-2 font-mono"
+                  />
+                  <button type="submit" className="px-4 py-2 rounded bg-[#00552B] text-white font-semibold cursor-pointer">
+                    {t('Xác Nhận Bật', 'Activate 2FA')}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Automatic & Manual Cloud Backups */}
+          <div className="bg-white dark:bg-[#16221C] rounded-xl border border-[#202020]/10 dark:border-white/10 p-6 space-y-4 text-sm lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-[#00552B] dark:text-[#C6A667]" />
+                  <span>{t('Sao Lưu Dữ Liệu Tự Động Định Kỳ (Cloud Backup)', 'Periodic Cloud Auto-Backup')}</span>
+                </h2>
+                <p className="text-xs text-[#202020]/70 dark:text-[#F1EFEA]/70 mt-0.5">
+                  {t(
+                    'Hệ thống tự động sao lưu định kỳ tiến trình toàn bộ game, xu và hồ sơ cá nhân để bảo toàn dữ liệu 100%.',
+                    'Your cross-game levels, coins, and profile settings are backed up automatically and ready to restore anytime.'
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true);
+                  try {
+                    const res = await apiFetch('/api/account/backups', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ label: 'Sao lưu thủ công từ Hồ sơ Thành viên' }),
+                    });
+                    if (res.ok) {
+                      showToast(t('Đã tạo bản sao lưu Cloud mới!', 'Cloud backup created!'));
+                      loadAccountBackups();
+                    }
+                  } finally {
+                    setBackupBusy(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-[#00552B] text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
+              >
+                {t('Sao Lưu Thủ Công Ngay', 'Create Backup Now')}
+              </button>
+            </div>
+
+            {accountBackups.length === 0 ? (
+              <p className="text-xs text-[#202020]/60 dark:text-[#F1EFEA]/60">
+                {t('Chưa có bản sao lưu nào. Nhấn Sao lưu ngay hoặc hoàn thành màn game để hệ thống tự lưu.', 'No backups yet. Click Create Backup Now or clear game levels to auto-backup.')}
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+                {accountBackups.slice(0, 6).map((b) => (
+                  <div key={b.id} className="p-3 rounded-lg bg-[#F8F5EF] dark:bg-[#0E1512] flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">
+                        [{b.trigger_type === 'auto' ? t('Tự động', 'Auto') : t('Thủ công', 'Manual')}] {b.summary_label}
+                      </div>
+                      <div className="text-[11px] opacity-65 font-mono">
+                        {b.created_at} · {Math.max(1, Math.round(Number(b.size_bytes || 0) / 1024))} KB
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await apiFetch('/api/account/backups/restore', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ backupId: b.id }),
+                        });
+                        if (res.ok) {
+                          showToast(t('Đã khôi phục dữ liệu thành công!', 'Backup restored successfully!'));
+                          loadDashboard();
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded border border-[#00552B] text-[#00552B] dark:text-[#C6A667] font-bold cursor-pointer shrink-0"
+                    >
+                      {t('Khôi Phục', 'Restore')}
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

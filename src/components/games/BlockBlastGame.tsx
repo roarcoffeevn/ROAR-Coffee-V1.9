@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Coins, Flame, Gift, RotateCcw, Sparkles, Trophy, Volume2, VolumeX } from 'lucide-react';
 import type { GameConfigRecord, GameRewardRecord } from '../../lib/gamesCatalog';
 import { AdaptiveLogo } from '../AdaptiveLogo';
+import { FireworksOverlay } from './FireworksOverlay';
 import { gameSound } from './RoarGamesSound';
 
 type BlockColor = 'cyan' | 'blue' | 'green' | 'yellow' | 'orange' | 'red' | 'purple' | 'pink';
@@ -49,6 +50,8 @@ interface BlockBlastGameProps {
   remainingFreeToday: number;
   isSignedIn: boolean;
   userPoints: number;
+  savedProgress?: { current_level: number; max_level: number; best_score: number; state_json?: any };
+  onSaveProgress?: (payload: { currentLevel: number; maxLevel: number; bestScore: number; stateJson?: any }) => void;
   onPlayReal: (useExtraPoints: boolean, score: number) => Promise<any>;
   onRequireLogin: () => void;
   onDemoResult: (reward: GameRewardRecord) => void;
@@ -56,7 +59,25 @@ interface BlockBlastGameProps {
 
 const GRID_SIZE = 8;
 const BEST_SCORE_STORAGE_KEY = 'roar_block_blast_best';
+const LEVEL_STORAGE_KEY = 'roar_block_blast_progress_v1';
 const COMBO_GRACE_MAX = 3;
+
+function readLocalBlockBlastProgress(): { level: number; maxLevel: number; bestScore: number } {
+  try {
+    const raw = window.localStorage.getItem(LEVEL_STORAGE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return {
+        level: Math.max(1, Number(p.level || 1)),
+        maxLevel: Math.max(1, Number(p.maxLevel || p.level || 1)),
+        bestScore: Math.max(0, Number(p.bestScore || window.localStorage.getItem(BEST_SCORE_STORAGE_KEY) || 0)),
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { level: 1, maxLevel: 1, bestScore: 0 };
+}
 
 const COLOR_STYLES: Record<
   BlockColor,
@@ -241,11 +262,13 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   remainingFreeToday,
   isSignedIn,
   userPoints,
+  savedProgress,
+  onSaveProgress,
   onPlayReal,
   onRequireLogin,
   onDemoResult,
 }) => {
-  const targetScore = config?.min_score_to_win || 300;
+  const baseGoal = config?.min_score_to_win || 300;
   const costPts = config?.extra_play_cost_points || 20;
 
   const pieceSeqRef = useRef(1);
@@ -257,6 +280,14 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   const shakeTimerRef = useRef<number | null>(null);
   const shardTimerRef = useRef<number | null>(null);
 
+  const initialLocal = readLocalBlockBlastProgress();
+  const [level, setLevel] = useState<number>(() => Math.max(1, savedProgress?.current_level || initialLocal.level));
+  const [maxLevel, setMaxLevel] = useState<number>(() => Math.max(1, savedProgress?.max_level || initialLocal.maxLevel));
+  const [stageScore, setStageScore] = useState(0);
+  const [stageCleared, setStageCleared] = useState(false);
+
+  const targetScore = baseGoal + (level - 1) * 180;
+
   const [grid, setGrid] = useState<(BlockColor | null)[][]>(() => createEmptyGrid());
   const [tray, setTray] = useState<(TrayPiece | null)[]>(() => dealTray(createEmptyGrid(), pieceSeqRef));
   const [trayDealKey, setTrayDealKey] = useState(1);
@@ -264,9 +295,13 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   const [displayScore, setDisplayScore] = useState(0);
   const [bestScore, setBestScore] = useState<number>(() => {
     try {
-      return Number(window.localStorage.getItem(BEST_SCORE_STORAGE_KEY) || 0);
+      return Math.max(
+        Number(savedProgress?.best_score || 0),
+        Number(window.localStorage.getItem(BEST_SCORE_STORAGE_KEY) || 0),
+        initialLocal.bestScore
+      );
     } catch {
-      return 0;
+      return Number(savedProgress?.best_score || 0);
     }
   });
   const [newBestFlash, setNewBestFlash] = useState(false);
@@ -284,6 +319,32 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   const [claimed, setClaimed] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [muted, setMuted] = useState(gameSound.muted);
+
+  useEffect(() => {
+    if (savedProgress && savedProgress.current_level > level) {
+      setLevel(savedProgress.current_level);
+      setMaxLevel(Math.max(savedProgress.max_level || 1, savedProgress.current_level));
+    }
+    if (savedProgress && savedProgress.best_score > bestScore) {
+      setBestScore(savedProgress.best_score);
+    }
+  }, [savedProgress]);
+
+  const persistProgress = useCallback(
+    (nextLevel: number, nextMaxLevel: number, nextBest: number) => {
+      try {
+        window.localStorage.setItem(
+          LEVEL_STORAGE_KEY,
+          JSON.stringify({ level: nextLevel, maxLevel: nextMaxLevel, bestScore: nextBest })
+        );
+        window.localStorage.setItem(BEST_SCORE_STORAGE_KEY, String(nextBest));
+      } catch {
+        // ignore
+      }
+      onSaveProgress?.({ currentLevel: nextLevel, maxLevel: nextMaxLevel, bestScore: nextBest });
+    },
+    [onSaveProgress]
+  );
 
   const [dragState, setDragState] = useState<{
     slotIndex: number;
@@ -371,6 +432,8 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
     setTray(dealTray(freshGrid, pieceSeqRef));
     setTrayDealKey((k) => k + 1);
     setScore(0);
+    setStageScore(0);
+    setStageCleared(false);
     setDisplayScore(0);
     setNewBestFlash(false);
     setCombo(0);
@@ -388,6 +451,23 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
     setDragState(null);
     setHoverPlacement(null);
   }, []);
+
+  const advanceToNextLevel = useCallback(() => {
+    const nextLvl = level + 1;
+    const nextMax = Math.max(maxLevel, nextLvl);
+    setLevel(nextLvl);
+    setMaxLevel(nextMax);
+    setStageScore(0);
+    setStageCleared(false);
+    const freshGrid = createEmptyGrid();
+    setGrid(freshGrid);
+    setTray(dealTray(freshGrid, pieceSeqRef));
+    setTrayDealKey((k) => k + 1);
+    setPhase('playing');
+    setSelectedSlot(null);
+    setClaimed(false);
+    persistProgress(nextLvl, nextMax, bestScore);
+  }, [bestScore, level, maxLevel, persistProgress]);
 
   const commitPlacePiece = useCallback(
     (slotIndex: number, targetRow: number, targetCol: number) => {
@@ -445,11 +525,17 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
           : 0;
       const gainedPts = basePts + clearPts;
       const nextScore = score + gainedPts;
+      const nextStageScore = stageScore + gainedPts;
 
       setScore(nextScore);
+      setStageScore(nextStageScore);
       setCombo(nextCombo);
       setComboGrace(nextGrace);
       updateBestScore(nextScore);
+      const nextBest = Math.max(bestScore, nextScore);
+      if (nextScore > bestScore) {
+        persistProgress(level, maxLevel, nextBest);
+      }
       setSelectedSlot(null);
       setHoverPlacement(null);
 
@@ -574,12 +660,16 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
         }
       }
 
-      if (score < targetScore && nextScore >= targetScore) {
-        gameSound.win();
+      if (!stageCleared && nextStageScore >= targetScore) {
+        setStageCleared(true);
+        gameSound.victoryFanfare();
+        const unlockedMax = Math.max(maxLevel, level + 1);
+        setMaxLevel(unlockedMax);
+        persistProgress(level + 1, unlockedMax, Math.max(bestScore, nextScore));
       }
       return true;
     },
-    [clearingSet.size, combo, comboGrace, grid, phase, score, spawnFloatingScore, targetScore, tray, updateBestScore]
+    [bestScore, clearingSet.size, combo, comboGrace, grid, level, maxLevel, persistProgress, phase, score, spawnFloatingScore, stageCleared, stageScore, targetScore, tray, updateBestScore]
   );
 
   const computeGridTargetFromPointer = useCallback(
@@ -755,8 +845,8 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   };
 
   const canFree = remainingFreeToday > 0;
-  const reachedGoal = score >= targetScore;
-  const progressPct = Math.min(100, Math.round((score / Math.max(1, targetScore)) * 100));
+  const reachedGoal = stageScore >= targetScore || score >= targetScore;
+  const progressPct = Math.min(100, Math.round((stageScore / Math.max(1, targetScore)) * 100));
 
   const bannerColors: Record<PraiseBanner['tone'], string> = {
     gold: 'from-[#FDE047] via-[#FACC15] to-[#F97316] text-[#111111]',
@@ -768,27 +858,30 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
   return (
     <div className="space-y-2.5 sm:space-y-3.5 w-full min-w-0 select-none">
       {/* Compact Score & Controls HUD */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10">
-        <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs font-bold tabular-nums min-w-0">
-          <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="hidden xs:inline-flex shrink-0" />
-          <div className="flex items-center gap-1">
-            <span className="text-[#202020]/65 dark:text-[#F1EFEA]/65">{lang === 'en' ? 'Score' : 'Điểm'}:</span>
-            <span className={`text-sm sm:text-base font-extrabold transition-colors ${reachedGoal ? 'text-[#00552B] dark:text-[#C6A667]' : 'text-[#111111] dark:text-white'}`}>
-              {displayScore}
+      <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10">
+        <div className="flex items-center gap-1.5 sm:gap-3 text-[11px] sm:text-xs font-bold tabular-nums min-w-0 flex-1 overflow-x-auto no-scrollbar">
+          <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="hidden sm:inline-flex shrink-0" />
+          <span className="px-1.5 py-0.5 rounded bg-[#00552B] text-[#F8F5EF] text-[10px] font-extrabold shrink-0 whitespace-nowrap">
+            {lang === 'en' ? `Lv.${level}` : `Màn ${level}`}
+          </span>
+          <div className="flex items-center gap-1 whitespace-nowrap shrink-0">
+            <span className="hidden sm:inline text-[#202020]/65 dark:text-[#F1EFEA]/65">{lang === 'en' ? 'Score' : 'Điểm'}:</span>
+            <span className={`text-xs sm:text-base font-extrabold transition-colors ${reachedGoal ? 'text-[#00552B] dark:text-[#C6A667]' : 'text-[#111111] dark:text-white'}`}>
+              {stageScore}
             </span>
-            <span className="text-[10px] text-[#202020]/50 dark:text-[#F1EFEA]/50">/ {targetScore}</span>
+            <span className="text-[10px] text-[#202020]/50 dark:text-[#F1EFEA]/50">/{targetScore}</span>
           </div>
 
-          <div className={`flex items-center gap-1 transition-transform ${newBestFlash ? 'scale-110 text-amber-500' : 'text-[#8C6D32] dark:text-[#C6A667]'}`}>
-            <Trophy className="w-3.5 h-3.5 shrink-0" />
+          <div className={`flex items-center gap-0.5 sm:gap-1 whitespace-nowrap shrink-0 transition-transform ${newBestFlash ? 'scale-110 text-amber-500' : 'text-[#8C6D32] dark:text-[#C6A667]'}`}>
+            <Trophy className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
             <span>{bestScore}</span>
           </div>
 
           {combo > 0 && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold shrink-0 whitespace-nowrap">
               <Flame className="w-3 h-3 text-orange-500" />
               <span>x{combo}</span>
-              <span className="inline-flex items-center gap-0.5 ml-0.5" aria-hidden="true">
+              <span className="hidden sm:inline-flex items-center gap-0.5 ml-0.5" aria-hidden="true">
                 {[0, 1, 2].map((pip) => (
                   <span
                     key={pip}
@@ -802,7 +895,7 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={() => {
@@ -810,7 +903,7 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
               setMuted(gameSound.muted);
             }}
             aria-label={muted ? 'Unmute' : 'Mute'}
-            className="w-8 h-8 rounded-lg border border-[#202020]/15 dark:border-white/15 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg border border-[#202020]/15 dark:border-white/15 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
           >
             {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
           </button>
@@ -819,7 +912,7 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
             onClick={resetGame}
             aria-label={lang === 'en' ? 'Restart' : 'Chơi lại'}
             title={lang === 'en' ? 'Restart' : 'Chơi lại'}
-            className="px-2.5 h-8 rounded-lg border border-[#202020]/15 dark:border-white/15 text-[11px] font-bold inline-flex items-center gap-1 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+            className="w-7 h-7 sm:w-auto sm:px-2.5 sm:h-8 rounded-lg border border-[#202020]/15 dark:border-white/15 text-[11px] font-bold inline-flex items-center justify-center gap-1 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{lang === 'en' ? 'Restart' : 'Chơi lại'}</span>
@@ -883,7 +976,13 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
       >
         <div
           ref={boardRef}
-          className="relative w-full h-full rounded-2xl bg-[#161F36] border-[3px] border-[#2C3A61] p-1.5 sm:p-2 shadow-xl grid grid-cols-8 grid-rows-8 gap-1 touch-none overflow-hidden"
+          className={`relative w-full h-full rounded-2xl bg-[#161F36] p-1.5 sm:p-2 shadow-xl grid grid-cols-8 grid-rows-8 gap-1 touch-none overflow-hidden transition-all ${
+            combo >= 3
+              ? 'border-[3px] border-[#FACC15] shadow-[0_0_24px_rgba(250,204,21,0.38)]'
+              : combo >= 2
+                ? 'border-[3px] border-[#38BDF8] shadow-[0_0_16px_rgba(56,189,248,0.28)]'
+                : 'border-[3px] border-[#2C3A61]'
+          }`}
         >
           {/* Subtle Official ROAR COFFEE Crest Watermark inside Board */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.08]">
@@ -1060,9 +1159,54 @@ export const BlockBlastGame: React.FC<BlockBlastGameProps> = ({
           </div>
         )}
 
+        {/* Celebratory Stage Clear Fireworks + Next Level Overlay */}
+        {stageCleared && phase === 'playing' && (
+          <div className="absolute inset-0 z-30 rounded-2xl bg-[#07110C]/80 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center text-white overflow-hidden">
+            <FireworksOverlay active={true} />
+            <div className="relative z-30 space-y-2.5 max-w-[260px]">
+              <div className="flex justify-center">
+                <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" />
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-[#FDE047] to-[#F97316] text-[#111111] text-[10px] font-black uppercase tracking-widest shadow-lg">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{lang === 'en' ? `LEVEL ${level} CLEARED!` : `HOÀN THÀNH MÀN ${level}!`}</span>
+              </div>
+              <div className="font-display text-2xl sm:text-3xl font-extrabold text-[#FDE047] tabular-nums drop-shadow">
+                {stageScore} pts
+              </div>
+              <p className="text-[11px] sm:text-xs text-white/85">
+                {lang === 'en'
+                  ? 'Dazzling victory! Advance to the next stage or claim your ROAR gift now.'
+                  : 'Tuyệt vời! Bạn đã mở khóa Màn tiếp theo và đủ điều kiện nhận quà ROAR.'}
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={advanceToNextLevel}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#22C55E] to-[#16A34A] hover:brightness-110 text-white text-xs font-extrabold shadow-lg cursor-pointer"
+                >
+                  {lang === 'en' ? `Next: Level ${level + 1} →` : `Chơi Màn ${level + 1} →`}
+                </button>
+                {!claimed && (
+                  <button
+                    type="button"
+                    disabled={claiming}
+                    onClick={() => (isSignedIn ? handleClaim(!canFree) : handleClaim(false))}
+                    className="px-3.5 py-2 rounded-xl bg-[#FACC15] text-[#111111] text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Gift className="w-3.5 h-3.5" />
+                    <span>{lang === 'en' ? 'Claim Gift' : 'Nhận Quà'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Game Over Overlay */}
         {phase === 'ended' && (
           <div className="absolute inset-0 z-30 rounded-2xl bg-[#0B1020]/82 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center text-white">
+            <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" className="mb-2" />
             <div className="text-[10px] sm:text-xs font-extrabold uppercase tracking-[0.18em] text-[#FACC15] mb-1">
               {reachedGoal
                 ? lang === 'en'

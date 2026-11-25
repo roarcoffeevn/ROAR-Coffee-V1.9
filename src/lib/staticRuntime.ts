@@ -1391,29 +1391,150 @@ export async function handleStaticApiFallback(
       syncStaticOrderCustomers(state);
       const products = snap?.tables?.products || [];
       const articles = snap?.tables?.journal_articles || [];
-      const revenue = state.orders.reduce((s, o) => s + Number(o.total || 0), 0);
+      const mediaAssets = snap?.tables?.media_assets || [];
+      const nonCancelled = state.orders.filter((o) => o.order_status !== 'Cancelled');
+      const revenue = nonCancelled.reduce((s, o) => s + Number(o.total || 0), 0);
       const totalOrders = state.orders.length;
-      const avgOrderValue = totalOrders > 0 ? Math.round(revenue / totalOrders) : 0;
-      const members = state.users.filter((x) => x.role !== 'admin').length;
+      const avgOrderValue = nonCancelled.length > 0 ? Math.round(revenue / nonCancelled.length) : 0;
+      const completedOrders = state.orders.filter((o) => o.order_status === 'Completed').length;
+      const pendingOrders = state.orders.filter((o) =>
+        ['Pending', 'Confirmed', 'Processing', 'Shipping'].includes(String(o.order_status || 'Pending'))
+      ).length;
+      const nonAdminUsers = state.users.filter((x) => x.role !== 'admin');
+      const members = nonAdminUsers.length;
       const pointsIssued = state.users.reduce((s, x) => s + Number(x.points || 0), 0);
+      const plays = state.gamePlays || [];
+      const claims = state.gameClaims || [];
+
+      const nowDate = new Date();
+      const dailyTrend: Array<{
+        date: string;
+        label: string;
+        revenue: number;
+        orders: number;
+        gamePlays: number;
+        newMembers: number;
+      }> = [];
+      for (let i = 29; i >= 0; i--) {
+        const dt = new Date(nowDate.getTime() - i * 86400000);
+        const iso = dt.toISOString().slice(0, 10);
+        const dayOrders = state.orders.filter((o) => String(o.created_at || '').slice(0, 10) === iso);
+        const dayRev = dayOrders
+          .filter((o) => o.order_status !== 'Cancelled')
+          .reduce((s, o) => s + Number(o.total || 0), 0);
+        const dayPlays = plays.filter((p) => (p.play_date || String(p.created_at || '').slice(0, 10)) === iso).length;
+        const dayMembers = nonAdminUsers.filter((m) => String(m.createdAt || '').slice(0, 10) === iso).length;
+        dailyTrend.push({
+          date: iso,
+          label: `${iso.slice(8, 10)}/${iso.slice(5, 7)}`,
+          revenue: dayRev,
+          orders: dayOrders.length,
+          gamePlays: dayPlays,
+          newMembers: dayMembers,
+        });
+      }
+
+      const statusMap = new Map<string, { status: string; count: number; revenue: number }>();
+      const payMap = new Map<string, { method: string; count: number; revenue: number }>();
+      const skuMap = new Map<string, { sku: string; product_name_vi: string; product_name_en: string; units_sold: number; revenue: number }>();
+      const prodBySku = new Map(products.map((p: any) => [p.sku, p]));
+      const catStats = new Map<string, { category: string; productCount: number; unitsSold: number; revenue: number }>();
+      for (const p of products) {
+        const cat = String(p.category || 'roasted');
+        const cur = catStats.get(cat) || { category: cat, productCount: 0, unitsSold: 0, revenue: 0 };
+        cur.productCount += 1;
+        catStats.set(cat, cur);
+      }
+
+      for (const o of state.orders) {
+        const st = String(o.order_status || 'Pending');
+        const sCur = statusMap.get(st) || { status: st, count: 0, revenue: 0 };
+        sCur.count += 1;
+        sCur.revenue += Number(o.total || 0);
+        statusMap.set(st, sCur);
+
+        const pm = String(o.payment_method || 'bank_transfer');
+        const pCur = payMap.get(pm) || { method: pm, count: 0, revenue: 0 };
+        pCur.count += 1;
+        pCur.revenue += Number(o.total || 0);
+        payMap.set(pm, pCur);
+
+        for (const it of o.items || []) {
+          const sku = String(it.sku || '');
+          const kCur = skuMap.get(sku) || {
+            sku,
+            product_name_vi: it.product_name_vi || sku,
+            product_name_en: it.product_name_en || sku,
+            units_sold: 0,
+            revenue: 0,
+          };
+          kCur.units_sold += Number(it.quantity || 0);
+          kCur.revenue += Number(it.line_total_vnd || 0);
+          skuMap.set(sku, kCur);
+
+          const matchedProd: any = prodBySku.get(sku);
+          const cat = String(matchedProd?.category || 'roasted');
+          const cCur = catStats.get(cat) || { category: cat, productCount: 0, unitsSold: 0, revenue: 0 };
+          cCur.unitsSold += Number(it.quantity || 0);
+          cCur.revenue += Number(it.line_total_vnd || 0);
+          catStats.set(cat, cCur);
+        }
+      }
+
+      const tierMap = new Map<string, number>();
+      for (const m of nonAdminUsers) {
+        const tr = normalizeMembershipTierName(m.tier || 'ROAR Member');
+        tierMap.set(tr, (tierMap.get(tr) || 0) + 1);
+      }
+      const b2bMap = new Map<string, number>();
+      for (const b of state.b2bInquiries) {
+        const bs = String(b.status || 'new');
+        b2bMap.set(bs, (b2bMap.get(bs) || 0) + 1);
+      }
+      const gameMap = new Map<string, { game_key: string; plays: number; wins: number }>();
+      for (const p of plays) {
+        const gk = String(p.game_key || 'wheel');
+        const gCur = gameMap.get(gk) || { game_key: gk, plays: 0, wins: 0 };
+        gCur.plays += 1;
+        if (p.reward_id) gCur.wins += 1;
+        gameMap.set(gk, gCur);
+      }
+
       return jsonResponse({
         metrics: {
           revenue,
           avgOrderValue,
           totalOrders,
+          completedOrders,
+          pendingOrders,
           grossRevenueVnd: revenue,
           members,
           customers: members,
           pointsIssued,
+          pointsRedeemed: 0,
           products: products.length,
+          activeProducts: products.filter((p: any) => p.status !== 'draft').length,
           articles: articles.length,
+          mediaAssets: mediaAssets.length,
           b2bInquiries: state.b2bInquiries.length,
           newsletterCount: state.newsletterSubscribers.length,
-          activeProducts: products.filter((p: any) => p.status !== 'draft').length,
+          totalGamePlays: plays.length,
+          gamePlayers: new Set(plays.map((p) => p.user_id)).size,
+          gameClaims: claims.length,
         },
-        revenueByCategory: [],
-        recentOrders: state.orders.slice(0, 5),
-        topProducts: [],
+        dailyTrend,
+        orderStatusBreakdown: Array.from(statusMap.values()).sort((a, b) => b.count - a.count),
+        categoryMix: Array.from(catStats.values()),
+        paymentBreakdown: Array.from(payMap.values()).sort((a, b) => b.count - a.count),
+        memberTiers: Array.from(tierMap.entries()).map(([tier, count]) => ({ tier, count })),
+        b2bStatusBreakdown: Array.from(b2bMap.entries()).map(([status, count]) => ({ status, count })),
+        topGames: Array.from(gameMap.values()).sort((a, b) => b.plays - a.plays).slice(0, 6),
+        productPerformance: Array.from(skuMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8),
+        recentOrders: state.orders.slice(0, 6),
+        lowStockProducts: products
+          .filter((p: any) => p.status === 'active' && Number(p.inventory || 0) <= 15)
+          .slice(0, 5),
+        auditLogs: [],
       });
     }
     if (pathname === '/api/admin/products' && method === 'GET') {
@@ -2149,7 +2270,7 @@ export async function handleStaticApiFallback(
         : DEFAULT_GAME_REWARDS.map((r, i) => ({ ...r, id: i + 1 }));
     } else {
       let maxId = state.gameRewards.reduce((m, r) => Math.max(m, Number(r.id || 0)), 0);
-      for (const defKey of ['shake', 'fortune', 'blockblast', 'cubeaway'] as const) {
+      for (const defKey of ['shake', 'fortune', 'blockblast', 'cubeaway', 'candysaga'] as const) {
         if (!state.gameRewards.some((r) => r.game_key === defKey)) {
           for (const rw of DEFAULT_GAME_REWARDS.filter((x) => x.game_key === defKey)) {
             maxId += 1;
@@ -2228,7 +2349,7 @@ export async function handleStaticApiFallback(
     }
 
     const score = Math.max(0, Math.floor(Number(body.score || 0)));
-    if ((gameKey === 'harvest' || gameKey === 'blockblast' || gameKey === 'cubeaway') && score < Number(cfg.min_score_to_win || 0)) {
+    if ((gameKey === 'harvest' || gameKey === 'blockblast' || gameKey === 'cubeaway' || gameKey === 'candysaga') && score < Number(cfg.min_score_to_win || 0)) {
       state.gamePlays!.unshift({ id: Date.now(), user_id: me.id, game_key: gameKey, play_date: today, used_points: usedPoints, score });
       writeState(state);
       return jsonResponse({

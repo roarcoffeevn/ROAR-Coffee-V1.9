@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CalendarCheck2, CheckCircle2, Flame, Gift, Sparkles } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useStore } from '../context/StoreContext';
+import { AdaptiveLogo } from './AdaptiveLogo';
 
 const DEFAULT_SCHEDULE = [
   { day: 1, points: 10, bonusVi: '', bonusEn: '' },
@@ -68,9 +69,12 @@ export const DailyCheckinGame: React.FC<{ onRewardClaimed?: () => void }> = ({ o
     <div className="rounded-2xl bg-white dark:bg-[#16221C] border border-[#00552B]/20 dark:border-[#C6A667]/30 p-4 sm:p-6 space-y-4 shadow-sm w-full min-w-0 overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#00552B] dark:text-[#C6A667]">
-            <CalendarCheck2 className="w-4 h-4 shrink-0" />
-            <span>{t('GAME ĐIỂM DANH HÀNG NGÀY · NHẬN ĐIỂM & QUÀ ROAR', 'DAILY CHECK-IN GAME · EARN POINTS & GIFTS')}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="shrink-0" />
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#00552B] dark:text-[#C6A667]">
+              <CalendarCheck2 className="w-4 h-4 shrink-0" />
+              <span>{t('GAME ĐIỂM DANH HÀNG NGÀY · NHẬN ĐIỂM & QUÀ ROAR', 'DAILY CHECK-IN GAME · EARN POINTS & GIFTS')}</span>
+            </div>
           </div>
           <p className="text-xs text-[#202020]/70 dark:text-[#F1EFEA]/70">
             {t(

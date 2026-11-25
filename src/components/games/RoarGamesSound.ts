@@ -265,6 +265,178 @@ class RoarGameSoundEngine {
     }
   }
 
+  cubeHover() {
+    this.playTone(620, 0.025, 'sine', 0.022, 0);
+    this.playTone(840, 0.02, 'triangle', 0.015, 0.012);
+  }
+
+  fireworkBurst(pitchOffset = 0) {
+    const base = 680 + pitchOffset * 110;
+    this.playTone(base, 0.06, 'sine', 0.055, 0);
+    this.playTone(base * 1.4, 0.09, 'triangle', 0.065, 0.045);
+    this.playTone(base * 1.85, 0.14, 'sine', 0.05, 0.09);
+    this.playTone(base * 2.25, 0.18, 'triangle', 0.04, 0.13);
+  }
+
+  private playNoiseBurst(
+    duration: number,
+    filterFreq: number,
+    filterType: BiquadFilterType = 'lowpass',
+    gainVal = 0.09,
+    delay = 0,
+    endFreq?: number
+  ) {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime + delay;
+      const sampleCount = Math.max(256, Math.floor(ctx.sampleRate * duration));
+      const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < sampleCount; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.setValueAtTime(filterFreq, now);
+      if (endFreq) {
+        filter.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + duration);
+      }
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(gainVal, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      src.start(now);
+      src.stop(now + duration + 0.02);
+    } catch {
+      // ignore audio node errors
+    }
+  }
+
+  private playPitchSweep(
+    startFreq: number,
+    endFreq: number,
+    duration: number,
+    type: OscillatorType = 'sine',
+    gainVal = 0.08,
+    delay = 0
+  ) {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime + delay;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), now + duration);
+    gain.gain.setValueAtTime(gainVal, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+
+  victoryFanfare() {
+    // Triumphant brass + sparkling chime fanfare
+    const seq: Array<[number, number, number, OscillatorType, number]> = [
+      [523.25, 0.16, 0.0, 'triangle', 0.075],
+      [659.25, 0.16, 0.1, 'triangle', 0.075],
+      [783.99, 0.18, 0.2, 'triangle', 0.08],
+      [1046.5, 0.38, 0.31, 'triangle', 0.09],
+      [783.99, 0.15, 0.52, 'sine', 0.06],
+      [1046.5, 0.62, 0.64, 'triangle', 0.09],
+      [1318.51, 0.62, 0.64, 'sine', 0.07],
+      [1567.98, 0.68, 0.68, 'sine', 0.045],
+    ];
+    for (const [f, d, delay, type, g] of seq) {
+      this.playTone(f, d, type, g, delay);
+    }
+  }
+
+  candySwap() {
+    this.playPitchSweep(420, 680, 0.085, 'sine', 0.045, 0);
+    this.playTone(740, 0.055, 'triangle', 0.032, 0.025);
+  }
+
+  candyMatch(combo = 1) {
+    // Lush rising pentatonic / Lydian bell cascade
+    const notes = [523.25, 587.33, 659.25, 783.99, 880, 987.77, 1046.5, 1174.66, 1318.51];
+    const base = notes[Math.min(Math.max(combo - 1, 0), notes.length - 1)];
+    this.playTone(base, 0.14, 'sine', 0.062, 0);
+    this.playTone(base * 1.25, 0.16, 'triangle', 0.052, 0.04);
+    this.playTone(base * 1.5, 0.22, 'sine', 0.048, 0.08);
+    if (combo >= 2) {
+      this.playTone(base * 2, 0.26, 'sine', 0.038, 0.12);
+    }
+    if (combo >= 4) {
+      this.playTone(base * 2.5, 0.3, 'triangle', 0.035, 0.16);
+    }
+  }
+
+  candyBoom() {
+    // Epic sub-bass boom + filtered impact blast + sugar crystal burst
+    this.playPitchSweep(155, 34, 0.38, 'sine', 0.13, 0);
+    this.playPitchSweep(240, 52, 0.26, 'triangle', 0.09, 0.01);
+    this.playNoiseBurst(0.34, 980, 'lowpass', 0.11, 0, 140);
+    this.playTone(587.33, 0.16, 'sine', 0.045, 0.06);
+    this.playTone(880, 0.2, 'triangle', 0.04, 0.11);
+  }
+
+  thunderZap() {
+    // High-voltage electric arc crackle + deep rolling thunder rumble
+    this.playNoiseBurst(0.14, 3400, 'bandpass', 0.09, 0, 750);
+    this.playPitchSweep(2150, 420, 0.15, 'sawtooth', 0.045, 0.01);
+    this.playPitchSweep(1640, 290, 0.18, 'square', 0.03, 0.045);
+    this.playPitchSweep(110, 38, 0.44, 'sine', 0.11, 0.04);
+    this.playNoiseBurst(0.45, 360, 'lowpass', 0.095, 0.06, 95);
+  }
+
+  colorBombBlast() {
+    // Cosmic prism sweep + resonant chord + sub drop
+    this.playPitchSweep(170, 38, 0.42, 'sine', 0.12, 0);
+    this.playNoiseBurst(0.32, 2200, 'bandpass', 0.07, 0.02, 420);
+    [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98].forEach((f, idx) => {
+      this.playTone(f, 0.28, idx % 2 === 0 ? 'sine' : 'triangle', 0.055, idx * 0.035);
+    });
+  }
+
+  stripedLaser() {
+    // Classic Candy Crush Striped row/col sweep zip
+    this.playPitchSweep(1480, 340, 0.19, 'sawtooth', 0.055, 0);
+    this.playPitchSweep(980, 1960, 0.14, 'sine', 0.06, 0.02);
+    this.playNoiseBurst(0.18, 2800, 'bandpass', 0.06, 0, 900);
+  }
+
+  wrappedDoubleBoom() {
+    // Classic Wrapped Candy double pop-boom!
+    this.playPitchSweep(180, 48, 0.18, 'sine', 0.11, 0);
+    this.playNoiseBurst(0.16, 850, 'lowpass', 0.09, 0, 180);
+    this.playPitchSweep(145, 32, 0.36, 'sine', 0.14, 0.16);
+    this.playNoiseBurst(0.3, 1150, 'lowpass', 0.11, 0.16, 120);
+    this.playTone(783.99, 0.18, 'triangle', 0.055, 0.2);
+  }
+
+  sugarCrushFanfare() {
+    // Joyful celebratory Sugar Crush arpeggio + sparkle chimes
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98, 2093.0];
+    notes.forEach((f, idx) => {
+      this.playTone(f, 0.24, idx % 2 === 0 ? 'triangle' : 'sine', 0.065, idx * 0.055);
+    });
+  }
+
+  hintChime() {
+    this.playTone(880, 0.12, 'sine', 0.042, 0);
+    this.playTone(1318.5, 0.18, 'sine', 0.042, 0.07);
+  }
+
   toggleLofi(): boolean {
     if (this.lofiActive) {
       this.stopLofi();
@@ -275,3 +447,4 @@ class RoarGameSoundEngine {
 }
 
 export const gameSound = new RoarGameSoundEngine();
+

@@ -21,6 +21,8 @@ interface HighlandHarvestGameProps {
   remainingFreeToday: number;
   isSignedIn: boolean;
   userPoints: number;
+  savedProgress?: { current_level: number; max_level: number; best_score: number };
+  onSaveProgress?: (payload: { currentLevel: number; maxLevel: number; bestScore: number }) => void;
   onPlayReal: (useExtraPoints: boolean, score: number) => Promise<any>;
   onRequireLogin: () => void;
   onDemoResult: (reward: GameRewardRecord) => void;
@@ -39,11 +41,22 @@ export const HighlandHarvestGame: React.FC<HighlandHarvestGameProps> = ({
   remainingFreeToday,
   isSignedIn,
   userPoints,
+  savedProgress,
+  onSaveProgress,
   onPlayReal,
   onRequireLogin,
   onDemoResult,
 }) => {
-  const targetScore = config?.min_score_to_win || 180;
+  const [level, setLevel] = useState<number>(() => {
+    try {
+      const local = Number(window.localStorage.getItem('roar_harvest_level_v1') || 1);
+      return Math.max(1, savedProgress?.current_level || local);
+    } catch {
+      return Math.max(1, savedProgress?.current_level || 1);
+    }
+  });
+  const baseTarget = config?.min_score_to_win || 180;
+  const targetScore = baseTarget + (level - 1) * 40;
   const costPts = config?.extra_play_cost_points || 20;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -52,6 +65,12 @@ export const HighlandHarvestGame: React.FC<HighlandHarvestGameProps> = ({
   const [timeLeft, setTimeLeft] = useState(ROUND_SECONDS);
   const [claimed, setClaimed] = useState(false);
   const [claiming, setClaiming] = useState(false);
+
+  useEffect(() => {
+    if (savedProgress && savedProgress.current_level > level) {
+      setLevel(savedProgress.current_level);
+    }
+  }, [savedProgress]);
 
   const basketXRef = useRef((CANVAS_W - BASKET_W) / 2);
   const keysRef = useRef<{ left: boolean; right: boolean }>({ left: false, right: false });
@@ -226,7 +245,21 @@ export const HighlandHarvestGame: React.FC<HighlandHarvestGameProps> = ({
         if (timeRef.current <= 0) {
           phaseRef.current = 'ended';
           setPhase('ended');
-          if (scoreRef.current >= targetScore) gameSound.win();
+          if (scoreRef.current >= targetScore) {
+            gameSound.victoryFanfare();
+            const nextLvl = level + 1;
+            setLevel(nextLvl);
+            try {
+              window.localStorage.setItem('roar_harvest_level_v1', String(nextLvl));
+            } catch {
+              // ignore
+            }
+            onSaveProgress?.({
+              currentLevel: nextLvl,
+              maxLevel: Math.max(savedProgress?.max_level || 1, nextLvl),
+              bestScore: Math.max(savedProgress?.best_score || 0, scoreRef.current),
+            });
+          }
         }
 
         // Spawn falling items
@@ -328,22 +361,25 @@ export const HighlandHarvestGame: React.FC<HighlandHarvestGameProps> = ({
   return (
     <div className="space-y-2.5 sm:space-y-4">
       {/* HUD */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 text-[11px] sm:text-xs font-bold tabular-nums">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <span>
-            {lang === 'en' ? 'Score:' : 'Điểm:'}{' '}
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 text-[11px] sm:text-xs font-bold tabular-nums">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="hidden sm:inline-flex shrink-0" />
+          <span className="px-1.5 py-0.5 rounded bg-[#00552B] text-white text-[10px] font-extrabold whitespace-nowrap">
+            {lang === 'en' ? `Lv.${level}` : `Màn ${level}`}
+          </span>
+          <span className="whitespace-nowrap">
+            <span className="hidden sm:inline">{lang === 'en' ? 'Score:' : 'Điểm:'} </span>
             <strong className={reachedGoal ? 'text-[#00552B] dark:text-[#C6A667]' : 'text-[#111111] dark:text-white'}>
               {score}
-            </strong>{' '}
-            / {targetScore}
+            </strong>
+            /{targetScore}
           </span>
-          <span>
-            {lang === 'en' ? 'Time:' : 'Còn:'}{' '}
+          <span className="whitespace-nowrap">
             <strong className={timeLeft <= 5 && phase === 'playing' ? 'text-red-500' : ''}>{timeLeft}s</strong>
           </span>
         </div>
-        <div className="text-[10px] sm:text-[11px] font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70">
-          🔴 +10 · 🟡 +25 · 🟢 -10 · 🪵 -20
+        <div className="text-[10px] sm:text-[11px] font-medium text-[#202020]/70 dark:text-[#F1EFEA]/70 whitespace-nowrap shrink-0">
+          🔴+10 🟡+25 🪵-20
         </div>
       </div>
 
@@ -384,6 +420,7 @@ export const HighlandHarvestGame: React.FC<HighlandHarvestGameProps> = ({
 
         {phase === 'ended' && (
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-3 sm:p-6 text-center text-white">
+            <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" className="mb-1.5" />
             <div className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-[#C6A667] mb-0.5 sm:mb-1">
               {reachedGoal
                 ? lang === 'en'

@@ -6,6 +6,8 @@ import {
   Edit3,
   Gamepad2,
   Gift,
+  Headphones,
+  Newspaper,
   Plus,
   RefreshCw,
   Save,
@@ -31,6 +33,7 @@ const GAME_LABELS: Record<GameKey, string> = {
   wheel: 'Vòng Quay May Mắn',
   blockblast: 'ROAR Block Blast · Xếp Khối',
   cubeaway: 'ROAR Cube Away 3D · Giải Khối',
+  candysaga: 'ROAR Candy Saga · Kẹo Ngọt 8 Hướng',
   shake: 'Lắc Điện Thoại Săn Quà',
   fortune: 'Xin Xăm Cà Phê Đầu Ngày',
   quiz: 'Trắc Nghiệm Gu 7 Cá Tính',
@@ -77,7 +80,7 @@ interface RewardFormState {
 export const AdminGamesManager: React.FC = () => {
   const { apiFetch, showToast } = useStore();
 
-  const [subTab, setSubTab] = useState<'rewards' | 'analytics' | 'checkin' | 'claims'>('rewards');
+  const [subTab, setSubTab] = useState<'rewards' | 'analytics' | 'checkin' | 'claims' | 'support_news'>('rewards');
   const [selectedGame, setSelectedGame] = useState<GameKey>('wheel');
   const [configs, setConfigs] = useState<GameConfigRecord[]>([]);
   const [rewards, setRewards] = useState<GameRewardRecord[]>([]);
@@ -89,6 +92,11 @@ export const AdminGamesManager: React.FC = () => {
   const [savingCheckin, setSavingCheckin] = useState(false);
   const [claimFilter, setClaimFilter] = useState<'all' | 'active' | 'redeemed' | 'fulfilled'>('all');
 
+  const [adminTickets, setAdminTickets] = useState<any[]>([]);
+  const [ticketReplyText, setTicketReplyText] = useState<Record<number, string>>({});
+  const [newsForm, setNewsForm] = useState({ titleVi: '', titleEn: '', summaryVi: '', summaryEn: '', tag: 'event', pinned: true });
+  const [newsItems, setNewsItems] = useState<any[]>([]);
+
   const [editingCfg, setEditingCfg] = useState<GameConfigRecord | null>(null);
   const [modalReward, setModalReward] = useState<RewardFormState | null>(null);
   const [savingReward, setSavingReward] = useState(false);
@@ -96,9 +104,11 @@ export const AdminGamesManager: React.FC = () => {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [gamesRes, prodsRes] = await Promise.all([
+      const [gamesRes, prodsRes, ticketsRes, newsRes] = await Promise.all([
         apiFetch('/api/admin/games'),
         apiFetch('/api/admin/products'),
+        apiFetch('/api/support/tickets?scope=all'),
+        apiFetch('/api/game-news'),
       ]);
       if (gamesRes.ok) {
         const d = await gamesRes.json();
@@ -112,6 +122,14 @@ export const AdminGamesManager: React.FC = () => {
       if (prodsRes.ok) {
         const pd = await prodsRes.json();
         setCatalogProducts(pd.products || []);
+      }
+      if (ticketsRes.ok) {
+        const td = await ticketsRes.json();
+        setAdminTickets(td.tickets || []);
+      }
+      if (newsRes.ok) {
+        const nd = await newsRes.json();
+        setNewsItems(nd.posts || []);
       }
     } finally {
       setLoading(false);
@@ -406,6 +424,18 @@ export const AdminGamesManager: React.FC = () => {
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Trúng Thưởng & Giao Quà ({claims.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('support_news')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              subTab === 'support_news'
+                ? 'bg-[#00552B] text-white'
+                : 'bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10'
+            }`}
+          >
+            <Headphones className="w-3.5 h-3.5" />
+            <span>CSKH Trực Tiếp & Tin Game ({adminTickets.length})</span>
           </button>
         </div>
       </div>
@@ -878,6 +908,151 @@ export const AdminGamesManager: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {subTab === 'support_news' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Live Support Tickets */}
+          <div className="p-5 rounded-2xl bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Headphones className="w-4 h-4 text-[#00552B] dark:text-[#C6A667]" />
+                <span>Phiếu Hỗ Trợ Đa Kênh ({adminTickets.length})</span>
+              </h3>
+              <button type="button" onClick={loadAll} className="px-3 py-1 rounded border text-xs font-bold cursor-pointer">
+                Làm mới
+              </button>
+            </div>
+            <div className="space-y-3 max-h-[460px] overflow-y-auto text-xs">
+              {adminTickets.map((t) => (
+                <div key={t.id} className="p-3 rounded-xl bg-[#F8F5EF] dark:bg-[#0E1512] border border-[#202020]/10 dark:border-white/10 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold">
+                      [{String(t.channel).toUpperCase()}] #{t.id} · {t.subject}
+                    </div>
+                    <select
+                      value={t.status}
+                      onChange={async (e) => {
+                        const res = await apiFetch(`/api/support/tickets/${t.id}/status`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: e.target.value }),
+                        });
+                        if (res.ok) {
+                          showToast('Đã cập nhật trạng thái phiếu');
+                          loadAll();
+                        }
+                      }}
+                      className="px-2 py-1 rounded bg-white dark:bg-[#16221C] border text-[11px] font-bold"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </div>
+                  <div className="text-[11px] opacity-70">
+                    {t.customer_name} ({t.customer_email})
+                  </div>
+                  <div className="space-y-1 pl-2 border-l-2 border-[#00552B]/40">
+                    {(t.messages || []).map((m: any) => (
+                      <div key={m.id}>
+                        <strong>{m.sender_name}:</strong> {m.message}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={ticketReplyText[t.id] || ''}
+                      onChange={(e) => setTicketReplyText((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                      placeholder="Nhập phản hồi gửi thẳng khách hàng (Live Push)..."
+                      className="flex-1 px-2.5 py-1.5 rounded bg-white dark:bg-[#16221C] border text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const msg = (ticketReplyText[t.id] || '').trim();
+                        if (!msg) return;
+                        const res = await apiFetch(`/api/support/tickets/${t.id}/reply`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ message: msg }),
+                        });
+                        if (res.ok) {
+                          setTicketReplyText((prev) => ({ ...prev, [t.id]: '' }));
+                          showToast('Đã gửi phản hồi trực tiếp!');
+                          loadAll();
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded bg-[#00552B] text-white font-bold cursor-pointer"
+                    >
+                      Trả lời
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Game News Publisher */}
+          <div className="p-5 rounded-2xl bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10 space-y-4">
+            <h3 className="font-bold text-base flex items-center gap-2">
+              <Newspaper className="w-4 h-4 text-[#00552B] dark:text-[#C6A667]" />
+              <span>Đăng Bảng Tin Sự Kiện Game</span>
+            </h3>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await apiFetch('/api/game-news', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(newsForm),
+                });
+                if (res.ok) {
+                  setNewsForm({ titleVi: '', titleEn: '', summaryVi: '', summaryEn: '', tag: 'event', pinned: true });
+                  showToast('Đã phát hành bản tin sự kiện!');
+                  loadAll();
+                }
+              }}
+              className="space-y-2.5 text-xs"
+            >
+              <input
+                type="text"
+                required
+                value={newsForm.titleVi}
+                onChange={(e) => setNewsForm({ ...newsForm, titleVi: e.target.value })}
+                placeholder="Tiêu đề bản tin (VI)"
+                className="w-full px-3 py-2 rounded-lg border bg-transparent"
+              />
+              <input
+                type="text"
+                value={newsForm.titleEn}
+                onChange={(e) => setNewsForm({ ...newsForm, titleEn: e.target.value })}
+                placeholder="Headline (EN)"
+                className="w-full px-3 py-2 rounded-lg border bg-transparent"
+              />
+              <textarea
+                required
+                rows={2}
+                value={newsForm.summaryVi}
+                onChange={(e) => setNewsForm({ ...newsForm, summaryVi: e.target.value })}
+                placeholder="Nội dung tóm tắt sự kiện (VI)..."
+                className="w-full px-3 py-2 rounded-lg border bg-transparent"
+              />
+              <button type="submit" className="px-4 py-2 rounded-lg bg-[#00552B] text-white font-bold cursor-pointer">
+                Đăng Tin Tức Game Ngay
+              </button>
+            </form>
+            <div className="space-y-2 max-h-52 overflow-y-auto text-xs pt-2 border-t border-[#202020]/10 dark:border-white/10">
+              {newsItems.map((n) => (
+                <div key={n.id} className="p-2.5 rounded-lg bg-[#F8F5EF] dark:bg-[#0E1512]">
+                  <div className="font-bold">{n.pinned ? '📌 ' : ''}{n.title_vi}</div>
+                  <div className="opacity-75">{n.summary_vi}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

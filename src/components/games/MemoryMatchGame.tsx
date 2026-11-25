@@ -51,6 +51,8 @@ interface MemoryMatchGameProps {
   remainingFreeToday: number;
   isSignedIn: boolean;
   userPoints: number;
+  savedProgress?: { current_level: number; max_level: number; best_score: number };
+  onSaveProgress?: (payload: { currentLevel: number; maxLevel: number; bestScore: number }) => void;
   onPlayReal: (useExtraPoints: boolean) => Promise<any>;
   onRequireLogin: () => void;
   onDemoResult: (reward: GameRewardRecord) => void;
@@ -63,10 +65,20 @@ export const MemoryMatchGame: React.FC<MemoryMatchGameProps> = ({
   remainingFreeToday,
   isSignedIn,
   userPoints,
+  savedProgress,
+  onSaveProgress,
   onPlayReal,
   onRequireLogin,
   onDemoResult,
 }) => {
+  const [level, setLevel] = useState<number>(() => {
+    try {
+      const local = Number(window.localStorage.getItem('roar_memory_level_v1') || 1);
+      return Math.max(1, savedProgress?.current_level || local);
+    } catch {
+      return Math.max(1, savedProgress?.current_level || 1);
+    }
+  });
   const [cards, setCards] = useState<MemoryCard[]>(() => buildDeck());
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [moves, setMoves] = useState(0);
@@ -80,12 +92,37 @@ export const MemoryMatchGame: React.FC<MemoryMatchGameProps> = ({
   const completed = matchedCount === PAIRS_CATALOG.length;
 
   useEffect(() => {
+    if (savedProgress && savedProgress.current_level > level) {
+      setLevel(savedProgress.current_level);
+    }
+  }, [savedProgress]);
+
+  useEffect(() => {
     if (!started || completed) return;
     const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => window.clearInterval(id);
   }, [started, completed]);
 
-  const resetDeck = () => {
+  useEffect(() => {
+    if (!completed) return;
+    gameSound.victoryFanfare();
+    const nextLvl = level + 1;
+    try {
+      window.localStorage.setItem('roar_memory_level_v1', String(nextLvl));
+    } catch {
+      // ignore
+    }
+    onSaveProgress?.({
+      currentLevel: nextLvl,
+      maxLevel: Math.max(savedProgress?.max_level || 1, nextLvl),
+      bestScore: Math.max(savedProgress?.best_score || 0, Math.max(100, 1000 - moves * 20 - seconds * 5)),
+    });
+  }, [completed]);
+
+  const resetDeck = (advanceLevel = false) => {
+    if (advanceLevel) {
+      setLevel((l) => l + 1);
+    }
     setCards(buildDeck());
     setSelectedIds([]);
     setMoves(0);
@@ -160,19 +197,23 @@ export const MemoryMatchGame: React.FC<MemoryMatchGameProps> = ({
   const canFree = remainingFreeToday > 0;
 
   return (
-    <div className="space-y-3 sm:space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-        <div className="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs font-bold text-[#202020]/80 dark:text-[#F1EFEA]/80 tabular-nums">
-          <span>
-            {lang === 'en' ? 'Pairs:' : 'Cặp:'}{' '}
+    <div className="space-y-2.5 sm:space-y-4">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-bold text-[#202020]/80 dark:text-[#F1EFEA]/80 tabular-nums min-w-0">
+          <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="hidden sm:inline-flex shrink-0" />
+          <span className="px-1.5 py-0.5 rounded bg-[#00552B] text-white text-[10px] font-extrabold whitespace-nowrap">
+            {lang === 'en' ? `Lv.${level}` : `Màn ${level}`}
+          </span>
+          <span className="whitespace-nowrap">
+            <span className="hidden sm:inline">{lang === 'en' ? 'Pairs:' : 'Cặp:'} </span>
             <strong className="text-[#00552B] dark:text-[#C6A667]">
               {matchedCount}/{PAIRS_CATALOG.length}
             </strong>
           </span>
-          <span>
+          <span className="whitespace-nowrap">
             {lang === 'en' ? 'Moves:' : 'Lượt:'} <strong>{moves}</strong>
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-0.5 whitespace-nowrap">
             <Timer className="w-3.5 h-3.5 text-[#C6A667]" />
             <strong>{seconds}s</strong>
           </span>
@@ -180,11 +221,11 @@ export const MemoryMatchGame: React.FC<MemoryMatchGameProps> = ({
 
         <button
           type="button"
-          onClick={resetDeck}
-          className="px-3 py-1.5 rounded-lg border border-[#202020]/15 dark:border-white/15 text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer whitespace-nowrap"
+          onClick={() => resetDeck(false)}
+          className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-[#202020]/15 dark:border-white/15 text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer whitespace-nowrap shrink-0"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          <span>{lang === 'en' ? 'Shuffle' : 'Xáo Bài'}</span>
+          <span className="hidden sm:inline">{lang === 'en' ? 'Shuffle' : 'Xáo Bài'}</span>
         </button>
       </div>
 
@@ -233,6 +274,9 @@ export const MemoryMatchGame: React.FC<MemoryMatchGameProps> = ({
       {completed && (
         <div className="p-4 rounded-xl bg-[#00552B] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
+            <div className="flex items-center gap-2 mb-1">
+              <AdaptiveLogo variant="horizontal" surface="dark" darkTone="gold" size="2xs" />
+            </div>
             <div className="text-sm font-bold flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-[#C6A667]" />
               <span>

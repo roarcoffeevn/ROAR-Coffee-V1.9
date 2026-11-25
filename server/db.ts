@@ -505,6 +505,169 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_cubeaway_scores_mode_date ON cubeaway_scores(mode, play_date, score DESC);
     CREATE INDEX IF NOT EXISTS idx_cubeaway_profiles_score ON cubeaway_profiles(total_score DESC, max_level DESC);
     CREATE INDEX IF NOT EXISTS idx_cubeaway_friends_pair ON cubeaway_friendships(user_a, user_b, status);
+
+    CREATE TABLE IF NOT EXISTS user_game_progress (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_key TEXT NOT NULL,
+      current_level INTEGER NOT NULL DEFAULT 1,
+      max_level INTEGER NOT NULL DEFAULT 1,
+      best_score INTEGER NOT NULL DEFAULT 0,
+      stars_json TEXT NOT NULL DEFAULT '{}',
+      state_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, game_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS saga_profiles (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      avatar_badge TEXT NOT NULL DEFAULT 'lion',
+      coins INTEGER NOT NULL DEFAULT 180,
+      current_level INTEGER NOT NULL DEFAULT 1,
+      max_level INTEGER NOT NULL DEFAULT 1,
+      total_score INTEGER NOT NULL DEFAULT 0,
+      seasonal_score INTEGER NOT NULL DEFAULT 0,
+      season_id TEXT NOT NULL DEFAULT 'SEASON_2026_1',
+      active_skin TEXT NOT NULL DEFAULT 'barista_lion',
+      unlocked_skins_json TEXT NOT NULL DEFAULT '["barista_lion"]',
+      booster_hammer INTEGER NOT NULL DEFAULT 2,
+      booster_switch8 INTEGER NOT NULL DEFAULT 2,
+      booster_colorbomb INTEGER NOT NULL DEFAULT 1,
+      booster_moves5 INTEGER NOT NULL DEFAULT 2,
+      last_daily_gift_date TEXT NOT NULL DEFAULT '',
+      daily_gift_streak INTEGER NOT NULL DEFAULT 0,
+      stats_json TEXT NOT NULL DEFAULT '{"levelsCleared":0,"specialsTriggered":0,"pvpWins":0,"pvpPlayed":0}',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS saga_weekly_quests (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      week_key TEXT NOT NULL,
+      quest_id TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      target INTEGER NOT NULL DEFAULT 1,
+      claimed INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, week_key, quest_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS guilds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      tag TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      emblem_color TEXT NOT NULL DEFAULT '#00552B',
+      emblem_icon TEXT NOT NULL DEFAULT '🦁',
+      leader_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      total_score INTEGER NOT NULL DEFAULT 0,
+      member_count INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS guild_members (
+      guild_id INTEGER NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('leader', 'officer', 'member')),
+      contribution_score INTEGER NOT NULL DEFAULT 0,
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guild_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS auction_listings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seller_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      item_type TEXT NOT NULL CHECK(item_type IN ('booster_pack', 'skin_voucher', 'roar_box')),
+      item_key TEXT NOT NULL,
+      title_vi TEXT NOT NULL,
+      title_en TEXT NOT NULL,
+      starting_price INTEGER NOT NULL DEFAULT 50,
+      current_bid INTEGER NOT NULL DEFAULT 50,
+      highest_bidder_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      bid_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'settled', 'cancelled')),
+      ends_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS auction_bids (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      listing_id INTEGER NOT NULL REFERENCES auction_listings(id) ON DELETE CASCADE,
+      bidder_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      bid_amount INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS realtime_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      display_name TEXT NOT NULL,
+      avatar_badge TEXT NOT NULL DEFAULT 'lion',
+      guild_tag TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS game_news_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title_vi TEXT NOT NULL,
+      title_en TEXT NOT NULL,
+      summary_vi TEXT NOT NULL,
+      summary_en TEXT NOT NULL,
+      body_vi TEXT NOT NULL,
+      body_en TEXT NOT NULL,
+      tag TEXT NOT NULL DEFAULT 'event',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      published_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL DEFAULT 'web' CHECK(channel IN ('web', 'zalo', 'email', 'hotline')),
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'resolved')),
+      priority TEXT NOT NULL DEFAULT 'normal',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      sender_role TEXT NOT NULL DEFAULT 'customer' CHECK(sender_role IN ('customer', 'agent')),
+      sender_name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS user_data_backups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      trigger_type TEXT NOT NULL DEFAULT 'auto' CHECK(trigger_type IN ('auto', 'manual')),
+      summary_label TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pvp_matches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_code TEXT NOT NULL,
+      player1_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      player2_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      player1_score INTEGER NOT NULL DEFAULT 0,
+      player2_score INTEGER NOT NULL DEFAULT 0,
+      winner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      stake_coins INTEGER NOT NULL DEFAULT 25,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('waiting', 'active', 'finished')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_saga_profiles_seasonal ON saga_profiles(seasonal_score DESC, max_level DESC);
+    CREATE INDEX IF NOT EXISTS idx_chat_channel_id ON realtime_chat_messages(channel, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_backups_user ON user_data_backups(user_id, id DESC);
   `);
 
   ensureProductsSchemaUpgraded();
@@ -2653,6 +2816,15 @@ function runIncrementalMigrations(): void {
   if (!userCols.some((c) => c.name === 'admin_permissions_json')) {
     db.exec("ALTER TABLE users ADD COLUMN admin_permissions_json TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!userCols.some((c) => c.name === 'totp_secret')) {
+    db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''");
+  }
+  if (!userCols.some((c) => c.name === 'totp_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!userCols.some((c) => c.name === 'totp_backup_codes_json')) {
+    db.exec("ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT NOT NULL DEFAULT '[]'");
+  }
 
   // 7. Ensure orders VAT company invoice columns exist on existing DBs
   const orderCols = db.prepare('PRAGMA table_info(orders)').all() as Array<{ name: string }>;
@@ -3358,6 +3530,111 @@ function runIncrementalMigrations(): void {
     db.prepare('INSERT OR IGNORE INTO site_settings (key, value) VALUES (?, ?)').run(
       'checkin_schedule_json',
       JSON.stringify(DEFAULT_CHECKIN_SCHEDULE)
+    );
+  }
+
+  // 14. Seed ROAR Candy Saga News, Official Starter Guilds & Transparent Auction Lots
+  const newsCnt = (db.prepare('SELECT COUNT(*) as c FROM game_news_posts').get() as { c: number }).c;
+  if (newsCnt === 0) {
+    const insertNews = db.prepare(`
+      INSERT INTO game_news_posts (title_vi, title_en, summary_vi, summary_en, body_vi, body_en, tag, pinned)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertNews.run(
+      'Khai Mở Mùa Giải Candy Saga Season 1 · Đường Đua Cao Nguyên',
+      'Candy Saga Season 1 Launch · Highland Sugar Sprint',
+      'Cập nhật đổi kẹo 8 hướng & đổi chéo, sấm sét liên hoàn, đấu PvP thời gian thực và Bảng Xếp Hạng Mùa với phần thưởng Xu & điểm ROAR.',
+      'Featuring 8-way diagonal swaps, lightning cascades, real-time WebSocket PvP duels, and Seasonal Honor Leaderboard prizes.',
+      'Chào mừng các thành viên ROAR CLUB bước vào Mùa Giải 1 của ROAR Candy Saga! Người chơi có thể ghép kẹo theo 8 hướng (bao gồm cả đường chéo), kích hoạt Bom Cầu Vồng và Sấm Sét Liên Hoàn, gia nhập Bang Hội, đấu giá vật phẩm minh bạch và đua Top mùa giải.',
+      'Welcome to Season 1 of ROAR Candy Saga! Swap candies in all 8 directions including diagonals, trigger Rainbow Bombs & Chain Lightning, join Guilds, bid on transparent auctions, and climb seasonal honor tiers.',
+      'season',
+      1
+    );
+    insertNews.run(
+      'Sự Kiện Đấu Giá Minh Bạch & Nhiệm Vụ Tuần Chính Thức Mở Cửa',
+      'Transparent Item Auction & Weekly Quests Now Live',
+      'Hoàn thành nhiệm vụ tuần để nhận Xu & điểm ROAR, hoặc tham gia đấu giá gói Booster & Skin độc quyền theo thời gian thực.',
+      'Complete weekly quests for Coins & ROAR points or bid transparently in real time on booster packs and exclusive skins.',
+      'Mọi lượt đặt giá trên sàn Đấu Giá ROAR được ghi nhận theo thời gian thực và hoàn Xu tự động ngay lập tức khi có người trả giá cao hơn. Toàn bộ tiến trình game của bạn được tự động sao lưu định kỳ trên Cloud.',
+      'All bids on the ROAR Auction House settle atomically with instant outbid coin refunds. Your game levels across all titles are automatically backed up to the cloud.',
+      'event',
+      0
+    );
+    insertNews.run(
+      'Nâng Cấp Bảo Mật Tài Khoản Với Xác Thực Hai Lớp (2FA)',
+      'Enhanced Account Security with Two-Factor Authentication (2FA)',
+      'Kích hoạt 2FA TOTP (Google Authenticator / Authy) trong Tài khoản để bảo vệ ví điểm ROAR, Xu và vật phẩm đấu giá.',
+      'Enable TOTP 2FA in Account Settings to protect your ROAR points wallet, coins, and auction assets.',
+      'Hỗ trợ chuẩn RFC 6238 (6 chữ số mỗi 30 giây) kèm 8 mã khôi phục dự phòng một lần giúp bảo vệ tài khoản tuyệt đối trên mọi thiết bị.',
+      'Built on RFC 6238 6-digit TOTP codes plus 8 single-use recovery backup codes for cross-device account protection.',
+      'security',
+      0
+    );
+  }
+
+  const guildCnt = (db.prepare('SELECT COUNT(*) as c FROM guilds').get() as { c: number }).c;
+  if (guildCnt === 0) {
+    const adminRow = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").get() as { id: number } | undefined;
+    const memberRow = db.prepare("SELECT id FROM users WHERE email = 'member@roarcoffee.vn'").get() as { id: number } | undefined;
+    const g1 = db
+      .prepare(
+        `INSERT INTO guilds (name, tag, description, emblem_color, emblem_icon, leader_id, total_score, member_count)
+         VALUES (?, ?, ?, ?, ?, ?, 4850, 1)`
+      )
+      .run('ROAR Highland Knights', 'ROAR', 'Bang hội chính thức dành cho tín đồ cà phê Tây Nguyên & cao thủ Candy Saga.', '#00552B', '🦁', adminRow?.id || null);
+    if (adminRow) {
+      db.prepare("INSERT OR IGNORE INTO guild_members (guild_id, user_id, role, contribution_score) VALUES (?, ?, 'leader', 4850)").run(
+        Number(g1.lastInsertRowid),
+        adminRow.id
+      );
+    }
+    const g2 = db
+      .prepare(
+        `INSERT INTO guilds (name, tag, description, emblem_color, emblem_icon, leader_id, total_score, member_count)
+         VALUES (?, ?, ?, ?, ?, ?, 3200, 1)`
+      )
+      .run('Cau Dat Thunder Guild', 'THDR', 'Đội đua Top Sấm Sét 8 Hướng & PvP Thời Gian Thực.', '#6D28D9', '⚡', memberRow?.id || null);
+    if (memberRow) {
+      db.prepare("INSERT OR IGNORE INTO guild_members (guild_id, user_id, role, contribution_score) VALUES (?, ?, 'leader', 3200)").run(
+        Number(g2.lastInsertRowid),
+        memberRow.id
+      );
+    }
+  }
+
+  const aucCnt = (db.prepare("SELECT COUNT(*) as c FROM auction_listings WHERE status = 'active'").get() as { c: number }).c;
+  if (aucCnt === 0) {
+    const endsSoon = new Date(Date.now() + 72 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    const insertAuc = db.prepare(`
+      INSERT INTO auction_listings (seller_id, item_type, item_key, title_vi, title_en, starting_price, current_bid, bid_count, status, ends_at)
+      VALUES (NULL, ?, ?, ?, ?, ?, ?, 0, 'active', ?)
+    `);
+    insertAuc.run(
+      'booster_pack',
+      'mega_thunder_pack',
+      'Gói Siêu Hỗ Trợ (3 Búa Kẹo + 2 Bom Cầu Vồng + 3 Đổi 8 Hướng)',
+      'Mega Booster Bundle (3 Hammers + 2 Color Bombs + 3 8-Way Switchers)',
+      60,
+      60,
+      endsSoon
+    );
+    insertAuc.run(
+      'skin_voucher',
+      'thunder_panther',
+      'Trang Phục Độc Quyền: Báo Đen Sấm Sét (Lôi Kích +25%)',
+      'Exclusive Skin: Thunder Black Panther (+25% Lightning)',
+      120,
+      120,
+      endsSoon
+    );
+    insertAuc.run(
+      'booster_pack',
+      'moves5_pack',
+      'Bộ 5 Vé +5 Lượt Đi Kẹo Ngọt Cao Cấp',
+      '5x Extra +5 Moves Saga Pack',
+      45,
+      45,
+      endsSoon
     );
   }
 

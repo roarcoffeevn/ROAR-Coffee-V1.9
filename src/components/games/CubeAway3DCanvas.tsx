@@ -12,6 +12,7 @@ import {
   type CubeSkinId,
   type LightingMoodId,
 } from '../../lib/cubeAwayData';
+import { gameSound } from './RoarGamesSound';
 
 export interface CubeAway3DHandle {
   zoomIn: () => void;
@@ -348,28 +349,7 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
       rimLight.position.set(-6, 4, -6);
       scene.add(rimLight);
 
-      // Grounded Studio Pedestal (never floating in empty void)
-      const pedestalGroup = new THREE.Group();
-      pedestalGroup.position.set(0, -3.15, 0);
-      const pedestalMat = new THREE.MeshStandardMaterial({
-        color: initialBackdrop.pedestalHex,
-        roughness: 0.72,
-        metalness: 0.25,
-      });
-      const pedestalDisc = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 4.1, 0.36, 48), pedestalMat);
-      pedestalDisc.receiveShadow = !isSoftwareGl;
-      pedestalGroup.add(pedestalDisc);
-
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: initialBackdrop.ringHex,
-        transparent: true,
-        opacity: 0.45,
-      });
-      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(3.48, 0.035, 12, 64), ringMat);
-      ringMesh.rotation.x = Math.PI / 2;
-      ringMesh.position.y = 0.19;
-      pedestalGroup.add(ringMesh);
-      scene.add(pedestalGroup);
+      // Pure floating 3D Rubik/Cube cluster — no pedestal base per user request
 
       // Shared geometries for zero-leak memory efficiency
       const cubeBodyGeo = createRoundedCubeGeometry(0.84, 0.1);
@@ -834,8 +814,6 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
 
         scene.background = new THREE.Color(bgHex);
         scene.fog = new THREE.FogExp2(bgHex, 0.035);
-        pedestalMat.color.set(bd.pedestalHex);
-        ringMat.color.set(ringHex);
         moteMat.color.set(ringHex);
         keyLight.color.set(keyHex);
         hemiLight.color.set(fillHex);
@@ -1018,6 +996,9 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
           raycaster.setFromCamera(_pointerNdc, camera);
           const hits = raycaster.intersectObjects(clickableMeshes, false);
           const hitId = hits.length > 0 ? String(hits[0].object.userData.blockId || '') : null;
+          if (hitId && hitId !== hoveredBlockId) {
+            gameSound.cubeHover();
+          }
           hoveredBlockId = hitId || null;
           renderer.domElement.style.cursor = hoveredBlockId ? (hammerModeRef.current ? 'crosshair' : 'pointer') : 'grab';
         }
@@ -1117,10 +1098,9 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
         camera.position.copy(_camDir);
         camera.lookAt(0, 0.05, 0);
 
-        // Gentle studio breathing float & glowing pedestal ring
+        // Gentle studio breathing float
         const isChillNow = chillModeRef.current;
-        puzzlePivot.position.y = 0.15 + Math.sin(elapsed * 1.4) * (isChillNow ? 0.095 : 0.035);
-        ringMat.opacity = 0.36 + Math.sin(elapsed * 1.9) * 0.12;
+        puzzlePivot.position.y = 0.1 + Math.sin(elapsed * 1.4) * (isChillNow ? 0.095 : 0.045);
 
         // Ambient floating particles update
         if (!isSoftwareGl) {
@@ -1167,9 +1147,18 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
 
         for (const [id, entry] of blockMeshMap.entries()) {
           const isHovered = id === hoveredBlockId;
-          const targetScale = isHovered ? 1.07 : 1;
-          const nextScale = THREE.MathUtils.damp(entry.root.scale.x, targetScale, 14, dt);
+          const targetScale = isHovered ? 1.09 : 1;
+          const nextScale = THREE.MathUtils.damp(entry.root.scale.x, targetScale, 16, dt);
           entry.root.scale.setScalar(nextScale);
+
+          // Tactile hover wiggle/shake animation (rung lắc khi rê chuột)
+          if (isHovered) {
+            entry.root.rotation.z = Math.sin(elapsed * 34) * 0.075;
+            entry.root.rotation.x = Math.cos(elapsed * 29) * 0.055;
+          } else {
+            entry.root.rotation.z = THREE.MathUtils.damp(entry.root.rotation.z, 0, 18, dt);
+            entry.root.rotation.x = THREE.MathUtils.damp(entry.root.rotation.x, 0, 18, dt);
+          }
 
           const mat = entry.body.material as THREE.MeshPhysicalMaterial;
           if (id === hId) {
@@ -1180,9 +1169,8 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
             mat.emissive.setHex(0xef4444);
             mat.emissiveIntensity = 0.55;
           } else {
-            mat.emissive.setHex(0x000000);
-            mat.emissiveIntensity = isHovered ? 0.16 : 0;
-            if (isHovered) mat.emissive.setHex(0xffffff);
+            mat.emissive.setHex(isHovered ? 0xfde68a : 0x000000);
+            mat.emissiveIntensity = isHovered ? 0.22 : 0;
           }
         }
 
@@ -1371,10 +1359,6 @@ export const CubeAway3DCanvas = forwardRef<CubeAway3DHandle, CubeAway3DCanvasPro
         galaxyStarTex.dispose();
         shockRingGeo.dispose();
         shockwaves.forEach((sw) => sw.mat.dispose());
-        pedestalDisc.geometry.dispose();
-        pedestalMat.dispose();
-        ringMesh.geometry.dispose();
-        ringMat.dispose();
         envTex.dispose();
         activeMaterials.forEach((m) => m.dispose());
         for (const [, entry] of blockMeshMap.entries()) {

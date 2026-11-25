@@ -1,11 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight,
   Award,
   Box,
   Brain,
+  Candy,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Coins,
   Copy,
   Disc3,
@@ -44,6 +47,7 @@ import {
   type GameRewardRecord,
 } from '../lib/gamesCatalog';
 import { MediaImage } from '../components/MediaImage';
+import { AdaptiveLogo } from '../components/AdaptiveLogo';
 import { LuckyWheelGame } from '../components/games/LuckyWheelGame';
 import { ShakePhoneGame } from '../components/games/ShakePhoneGame';
 import { FortuneStickGame } from '../components/games/FortuneStickGame';
@@ -58,6 +62,10 @@ const CubeAway3DGame = React.lazy(() =>
   import('../components/games/CubeAway3DGame').then((m) => ({ default: m.CubeAway3DGame }))
 );
 
+const CandySagaGame = React.lazy(() =>
+  import('../components/games/CandySagaGame').then((m) => ({ default: m.CandySagaGame }))
+);
+
 interface RecentWinner {
   id: number;
   game_key: GameKey;
@@ -70,12 +78,31 @@ interface RecentWinner {
   created_at: string;
 }
 
+const VALID_GAME_KEYS: GameKey[] = [
+  'wheel',
+  'blockblast',
+  'cubeaway',
+  'candysaga',
+  'shake',
+  'fortune',
+  'quiz',
+  'memory',
+  'harvest',
+  'mystery',
+];
+
 export const PlayGamesPage: React.FC = () => {
   const { lang, t, localePath } = useI18n();
   const { user, apiFetch, refreshUser, showToast, addToCart, personalities } = useStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedGameParam = searchParams.get('game') as GameKey | null;
+  const initialGame: GameKey =
+    requestedGameParam && VALID_GAME_KEYS.includes(requestedGameParam)
+      ? requestedGameParam
+      : 'wheel';
 
-  const [activeGame, setActiveGame] = useState<GameKey>('wheel');
+  const [activeGame, setActiveGame] = useState<GameKey>(initialGame);
   const [configs, setConfigs] = useState<GameConfigRecord[]>(DEFAULT_GAME_CONFIGS);
   const [rewards, setRewards] = useState<GameRewardRecord[]>(
     DEFAULT_GAME_REWARDS.map((r, idx) => ({ ...r, id: idx + 1 }))
@@ -84,6 +111,7 @@ export const PlayGamesPage: React.FC = () => {
     wheel: 1,
     blockblast: 2,
     cubeaway: 2,
+    candysaga: 2,
     shake: 2,
     fortune: 1,
     quiz: 1,
@@ -91,6 +119,9 @@ export const PlayGamesPage: React.FC = () => {
     harvest: 2,
     mystery: 1,
   });
+  const [gameProgressMap, setGameProgressMap] = useState<
+    Record<string, { current_level: number; max_level: number; best_score: number }>
+  >({});
   const [myClaims, setMyClaims] = useState<GameRewardClaimRecord[]>([]);
   const [recentWinners, setRecentWinners] = useState<RecentWinner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -125,23 +156,153 @@ export const PlayGamesPage: React.FC = () => {
 
   useEffect(() => {
     loadGamesData();
-  }, [loadGamesData, user?.id]);
+    if (user) {
+      apiFetch('/api/games/progress')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.progressByGame) setGameProgressMap(d.progressByGame);
+        })
+        .catch(() => {});
+    } else {
+      setGameProgressMap({});
+    }
+  }, [loadGamesData, user?.id, apiFetch]);
+
+  const handleSaveGameProgress = useCallback(
+    async (
+      gameKey: 'blockblast' | 'cubeaway' | 'candysaga' | 'memory' | 'harvest',
+      payload: { currentLevel: number; maxLevel: number; bestScore: number }
+    ) => {
+      setGameProgressMap((prev) => ({
+        ...prev,
+        [gameKey]: {
+          current_level: payload.currentLevel,
+          max_level: Math.max(prev[gameKey]?.max_level || 1, payload.maxLevel),
+          best_score: Math.max(prev[gameKey]?.best_score || 0, payload.bestScore),
+        },
+      }));
+      if (!user) return;
+      try {
+        await apiFetch('/api/games/progress', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameKey, ...payload }),
+        });
+      } catch {
+        // ignore network hiccup; localStorage already updated
+      }
+    },
+    [apiFetch, user]
+  );
 
   useEffect(() => {
     fetchProductsWithFallback().then((list) => setProducts(list || [])).catch(() => {});
   }, []);
 
-  const gameMetaList: Array<{ key: GameKey; icon: React.ReactNode; shortVi: string; shortEn: string }> = [
-    { key: 'wheel', icon: <Disc3 className="w-4 h-4" />, shortVi: 'Vòng Quay', shortEn: 'Lucky Wheel' },
-    { key: 'blockblast', icon: <LayoutGrid className="w-4 h-4" />, shortVi: 'Block Blast', shortEn: 'Block Blast' },
-    { key: 'cubeaway', icon: <Box className="w-4 h-4" />, shortVi: 'Cube Away 3D', shortEn: 'Cube Away 3D' },
-    { key: 'shake', icon: <Smartphone className="w-4 h-4" />, shortVi: 'Lắc Điện Thoại', shortEn: 'Shake & Win' },
-    { key: 'fortune', icon: <ScrollText className="w-4 h-4" />, shortVi: 'Xin Xăm Cà Phê', shortEn: 'Fortune Stick' },
-    { key: 'quiz', icon: <HelpCircle className="w-4 h-4" />, shortVi: 'Gu 7 Cá Tính', shortEn: 'Taste Quiz' },
-    { key: 'memory', icon: <Brain className="w-4 h-4" />, shortVi: 'Lật Thẻ', shortEn: 'Memory Match' },
-    { key: 'harvest', icon: <Sprout className="w-4 h-4" />, shortVi: 'Hứng Hạt', shortEn: 'Harvest' },
-    { key: 'mystery', icon: <PackageOpen className="w-4 h-4" />, shortVi: 'Hộp Bí Ẩn', shortEn: 'Mystery Box' },
+  const gameMetaList: Array<{
+    key: GameKey;
+    icon: React.ReactNode;
+    shortVi: string;
+    shortEn: string;
+    tagVi: string;
+    tagEn: string;
+  }> = [
+    { key: 'wheel', icon: <Disc3 className="w-4 h-4" />, shortVi: 'Vòng Quay', shortEn: 'Lucky Wheel', tagVi: 'Quay trúng quà ngay', tagEn: 'Spin for instant gifts' },
+    { key: 'blockblast', icon: <LayoutGrid className="w-4 h-4" />, shortVi: 'Block Blast', shortEn: 'Block Blast', tagVi: 'Xếp khối nổ combo', tagEn: 'Puzzle block combos' },
+    { key: 'cubeaway', icon: <Box className="w-4 h-4" />, shortVi: 'Cube Away 3D', shortEn: 'Cube Away 3D', tagVi: 'Gỡ khối xoay 360°', tagEn: '360° 3D cube puzzle' },
+    { key: 'candysaga', icon: <Candy className="w-4 h-4" />, shortVi: 'Candy Saga', shortEn: 'Candy Saga', tagVi: 'Nối kẹo sấm chớp', tagEn: 'Match-3 lightning saga' },
+    { key: 'shake', icon: <Smartphone className="w-4 h-4" />, shortVi: 'Lắc Điện Thoại', shortEn: 'Shake & Win', tagVi: 'Lắc tay rinh lộc', tagEn: 'Shake for lucky drops' },
+    { key: 'fortune', icon: <ScrollText className="w-4 h-4" />, shortVi: 'Xin Xăm Cà Phê', shortEn: 'Fortune Stick', tagVi: 'Rút quẻ gu cà phê', tagEn: 'Draw coffee fortune' },
+    { key: 'quiz', icon: <HelpCircle className="w-4 h-4" />, shortVi: 'Gu 7 Cá Tính', shortEn: 'Taste Quiz', tagVi: 'Khám phá gu vị', tagEn: 'Find your roast profile' },
+    { key: 'memory', icon: <Brain className="w-4 h-4" />, shortVi: 'Lật Thẻ', shortEn: 'Memory Match', tagVi: 'Thử thách trí nhớ', tagEn: 'Flip & match pairs' },
+    { key: 'harvest', icon: <Sprout className="w-4 h-4" />, shortVi: 'Hứng Hạt', shortEn: 'Harvest', tagVi: 'Hứng hạt cao nguyên', tagEn: 'Catch ripe cherries' },
+    { key: 'mystery', icon: <PackageOpen className="w-4 h-4" />, shortVi: 'Hộp Bí Ẩn', shortEn: 'Mystery Box', tagVi: 'Mở rương săn quà', tagEn: 'Unbox secret rewards' },
   ];
+
+  const carouselRef = useRef<HTMLDivElement | null>(null);
+  const firstTrackRefs = useRef<Partial<Record<GameKey, HTMLButtonElement | null>>>({});
+  const isInteractingRef = useRef(false);
+  const pauseUntilRef = useRef(0);
+  const floatScrollRef = useRef(0);
+  const [carouselPaused, setCarouselPaused] = useState(false);
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) return;
+
+    floatScrollRef.current = el.scrollLeft;
+    let rafId = 0;
+    let lastTs = performance.now();
+
+    const tick = (now: number) => {
+      const dt = Math.min(48, Math.max(0, now - lastTs));
+      lastTs = now;
+      if (!carouselPaused && !isInteractingRef.current && now >= pauseUntilRef.current) {
+        const half = el.scrollWidth / 2;
+        if (half > 0) {
+          floatScrollRef.current += dt * 0.036; // ~36px/sec silky glide
+          if (floatScrollRef.current >= half) {
+            floatScrollRef.current -= half;
+          }
+          el.scrollLeft = floatScrollRef.current;
+        }
+      } else {
+        floatScrollRef.current = el.scrollLeft;
+      }
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [carouselPaused]);
+
+  const selectGameFromCarousel = useCallback((key: GameKey) => {
+    pauseUntilRef.current = performance.now() + 3500;
+    setActiveGame(key);
+    const btn = firstTrackRefs.current[key];
+    if (btn) {
+      btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (requestedGameParam && VALID_GAME_KEYS.includes(requestedGameParam)) {
+      setActiveGame(requestedGameParam);
+      pauseUntilRef.current = performance.now() + 3500;
+      const timer = window.setTimeout(() => {
+        const btn = firstTrackRefs.current[requestedGameParam];
+        if (btn) {
+          btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+      }, 150);
+      return () => window.clearTimeout(timer);
+    }
+  }, [requestedGameParam]);
+
+  const stepCarousel = useCallback((dir: -1 | 1) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    pauseUntilRef.current = performance.now() + 3200;
+    const half = el.scrollWidth / 2;
+    const step = 220;
+    if (dir === -1 && el.scrollLeft < step && half > 0) {
+      el.scrollLeft = el.scrollLeft + half;
+      floatScrollRef.current = el.scrollLeft;
+    } else if (dir === 1 && half > 0 && el.scrollLeft + step >= half + el.clientWidth) {
+      el.scrollLeft = Math.max(0, el.scrollLeft - half);
+      floatScrollRef.current = el.scrollLeft;
+    }
+    el.scrollBy({ left: dir * step, behavior: 'smooth' });
+  }, []);
+
+  const activeGameIndex = Math.max(
+    0,
+    gameMetaList.findIndex((g) => g.key === activeGame)
+  );
 
   const currentConfig = configs.find((c) => c.game_key === activeGame) || DEFAULT_GAME_CONFIGS[0];
   const currentRewards = useMemo(
@@ -243,109 +404,184 @@ export const PlayGamesPage: React.FC = () => {
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#F8F5EF] dark:bg-[#0E1512] text-[#202020] dark:text-[#F1EFEA] pb-24 lg:pb-20">
-      {/* Compact Editorial Hero Header (tight mobile viewport fit, full editorial on sm+/lg+) */}
+      {/* Ultra-Compact Emerald Header + Live Auto-Gliding 10-Game Carousel */}
       <section className="bg-[#003D25] text-[#F8F5EF] border-b border-[#C6A667]/25">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 lg:py-10">
-          <div className="flex items-center justify-between gap-3 lg:gap-6">
-            <div className="space-y-1 sm:space-y-2 max-w-2xl min-w-0">
-              <div className="hidden sm:inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#C6A667]">
-                <Gamepad2 className="w-4 h-4" />
-                <span>{t('ROAR PLAY & WIN · SÂN CHƠI THƯỞNG CÀ PHÊ THẬT', 'ROAR PLAY & WIN · COFFEE REWARDS ARENA')}</span>
-              </div>
-              <div className="sm:hidden inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#C6A667]">
-                <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
-                <span>ROAR PLAY &amp; WIN</span>
-              </div>
-              <h1 className="font-serif text-lg sm:text-3xl lg:text-4xl font-bold tracking-tight text-white leading-tight truncate sm:whitespace-normal">
-                {t('Chơi Vui Trúng Quà Cà Phê & Voucher', 'Play & Win ROAR Coffee Gifts')}
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Gamepad2 className="w-4 h-4 text-[#C6A667] shrink-0" />
+              <h1 className="font-serif text-sm sm:text-lg font-bold tracking-tight text-white truncate">
+                {t('ROAR Play & Win', 'ROAR Play & Win')}
               </h1>
-              <p className="hidden sm:block text-sm text-[#F8F5EF]/80 leading-relaxed">
-                {t(
-                  'Tham gia 9 mini-game tương tác mỗi ngày (Vòng Quay, Block Blast, Cube Away 3D, Lắc Điện Thoại, Xin Xăm Cà Phê, Đoán Gu, Lật Thẻ, Hứng Hạt, Hộp Bí Ẩn) để tích điểm ROAR CLUB, săn voucher và rinh ngay túi cà phê tặng kèm miễn phí.',
-                  'Play 9 daily interactive coffee games (Lucky Wheel, Block Blast, Cube Away 3D, Shake & Win, Fortune Stick, Taste Quiz, Memory, Harvest & Mystery Box) to earn ROAR CLUB points, vouchers, and complimentary coffee gifts.'
-                )}
-              </p>
+              <span aria-hidden="true" className="text-white/35 text-xs">·</span>
+              <span className="text-[11px] font-bold text-[#C6A667] tabular-nums whitespace-nowrap">
+                {gameMetaList.length} {t('trò chơi', 'games')}
+              </span>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {user ? (
-                <div className="px-2.5 py-1.5 sm:px-4 sm:py-3 rounded-xl bg-white/10 border border-[#C6A667]/35 flex items-center gap-2 sm:gap-3">
-                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-[#C6A667] shrink-0" />
-                  <div>
-                    <div className="hidden sm:block text-[11px] uppercase tracking-wider text-white/70">
-                      {t('Điểm khả dụng', 'Available Points')}
-                    </div>
-                    <div className="font-mono text-xs sm:text-lg font-extrabold text-[#C6A667] tabular-nums whitespace-nowrap">
-                      {userAvailablePts.toLocaleString()} {t('điểm', 'pts')}
-                    </div>
-                  </div>
+                <div className="px-2.5 py-1 rounded-lg bg-white/10 border border-[#C6A667]/35 inline-flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-[#C6A667] shrink-0" />
+                  <span className="font-mono text-xs sm:text-sm font-extrabold text-[#C6A667] tabular-nums whitespace-nowrap">
+                    {userAvailablePts.toLocaleString()} {t('điểm', 'pts')}
+                  </span>
                 </div>
               ) : (
                 <Link
                   to={localePath('/account')}
-                  className="px-3 py-2 sm:px-5 sm:py-3 rounded-xl bg-[#C6A667] hover:bg-[#b59454] text-[#111111] text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 sm:gap-2 shadow-md whitespace-nowrap shrink-0"
+                  className="px-2.5 py-1.5 sm:px-3.5 rounded-lg bg-[#C6A667] hover:bg-[#b59454] text-[#111111] text-xs font-bold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
                 >
-                  <Gift className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <Gift className="w-3.5 h-3.5 shrink-0" />
                   <span className="sm:hidden">{t('Đăng nhập', 'Sign In')}</span>
-                  <span className="hidden sm:inline">{t('Đăng nhập để Lưu & Nhận Quà', 'Sign In to Claim Prizes')}</span>
+                  <span className="hidden sm:inline">{t('Đăng nhập nhận quà', 'Sign In to Claim')}</span>
                 </Link>
               )}
             </div>
           </div>
 
-          {/* 7-Game Switcher Tabs */}
-          <div className="mt-2.5 sm:mt-6 -mx-3 px-3 sm:mx-0 sm:px-0 flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1">
-            {gameMetaList.map((g) => {
-              const cfg = configs.find((c) => c.game_key === g.key);
-              const isSelected = activeGame === g.key;
-              const freeLeft = remainingFreeToday[g.key] ?? 0;
-              return (
-                <button
-                  key={g.key}
-                  type="button"
-                  onClick={() => setActiveGame(g.key)}
-                  className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 sm:gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer border min-h-[38px] sm:min-h-[42px] ${
-                    isSelected
-                      ? 'bg-[#C6A667] text-[#111111] border-[#C6A667] shadow-md'
-                      : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/15'
-                  }`}
-                >
-                  {g.icon}
-                  <span>{lang === 'en' ? g.shortEn : g.shortVi}</span>
-                  {user && cfg?.active !== 0 && (
-                    <span
-                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold tabular-nums ${
-                        isSelected ? 'bg-[#111111]/15 text-[#111111]' : 'bg-black/25 text-[#C6A667]'
+          {/* Single-Row Auto-Running Game Carousel */}
+          <div
+            className="flex items-center gap-1.5 sm:gap-2"
+            onMouseEnter={() => {
+              isInteractingRef.current = true;
+            }}
+            onMouseLeave={() => {
+              isInteractingRef.current = false;
+            }}
+            onTouchStart={() => {
+              isInteractingRef.current = true;
+            }}
+            onTouchEnd={() => {
+              isInteractingRef.current = false;
+              pauseUntilRef.current = performance.now() + 1800;
+            }}
+            onFocusCapture={() => {
+              isInteractingRef.current = true;
+            }}
+            onBlurCapture={() => {
+              isInteractingRef.current = false;
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => stepCarousel(-1)}
+              aria-label={t('Trò chơi trước', 'Previous games')}
+              className="w-8 h-9 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-white inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A667]"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <div className="relative flex-1 min-w-0">
+              <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-5 bg-gradient-to-r from-[#003D25] to-transparent z-10" />
+              <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-[#003D25] to-transparent z-10" />
+
+              <div
+                ref={carouselRef}
+                onScroll={() => {
+                  const el = carouselRef.current;
+                  if (el && isInteractingRef.current) {
+                    floatScrollRef.current = el.scrollLeft;
+                  }
+                }}
+                className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5"
+              >
+                {[...gameMetaList, ...gameMetaList].map((g, dupIdx) => {
+                  const cfg = configs.find((c) => c.game_key === g.key);
+                  const isSelected = activeGame === g.key;
+                  const freeLeft = remainingFreeToday[g.key] ?? 0;
+                  const isPrimaryCopy = dupIdx < gameMetaList.length;
+                  const gameNum = (dupIdx % gameMetaList.length) + 1;
+                  return (
+                    <button
+                      key={`${g.key}-${dupIdx}`}
+                      ref={
+                        isPrimaryCopy
+                          ? (node) => {
+                              firstTrackRefs.current[g.key] = node;
+                            }
+                          : undefined
+                      }
+                      type="button"
+                      tabIndex={isPrimaryCopy ? 0 : -1}
+                      aria-hidden={!isPrimaryCopy}
+                      onClick={() => selectGameFromCarousel(g.key)}
+                      className={`h-9 px-3 rounded-lg inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer border whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A667] ${
+                        isSelected
+                          ? 'bg-[#C6A667] text-[#111111] border-[#FDE68A]/80 shadow-md font-extrabold'
+                          : 'bg-white/[0.1] text-white/95 border-white/15 hover:bg-white/[0.18] hover:border-[#C6A667]/50 font-bold'
                       }`}
                     >
-                      {freeLeft}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                      <span className={isSelected ? 'text-[#111111]' : 'text-[#C6A667]'}>{g.icon}</span>
+                      <span className="text-xs">{lang === 'en' ? g.shortEn : g.shortVi}</span>
+                      {user && cfg?.active !== 0 ? (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold tabular-nums ${
+                            isSelected ? 'bg-[#111111]/15 text-[#111111]' : 'bg-black/30 text-[#C6A667]'
+                          }`}
+                        >
+                          {freeLeft}
+                        </span>
+                      ) : (
+                        <span
+                          className={`text-[10px] font-mono tabular-nums ${
+                            isSelected ? 'text-[#111111]/60' : 'text-white/45'
+                          }`}
+                        >
+                          {gameNum}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => stepCarousel(1)}
+              aria-label={t('Xem thêm trò chơi', 'More games')}
+              className="w-8 h-9 rounded-lg bg-[#C6A667]/20 hover:bg-[#C6A667]/35 border border-[#C6A667]/45 text-[#FDE68A] inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A667]"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCarouselPaused((p) => !p)}
+              aria-label={carouselPaused ? t('Chạy tự động thanh game', 'Resume game carousel') : t('Tạm dừng thanh game', 'Pause game carousel')}
+              title={carouselPaused ? t('Tiếp tục chạy', 'Resume') : t('Tạm dừng', 'Pause')}
+              className="hidden sm:inline-flex items-center justify-center px-2 h-9 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-[10px] font-bold text-white/80 shrink-0 cursor-pointer"
+            >
+              {carouselPaused ? '▶' : '⏸'}
+            </button>
           </div>
         </div>
       </section>
 
       {/* Main Play Arena + Live Prize Pool & Wallet */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-3 sm:mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-4 sm:gap-7 items-start">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 mt-2.5 sm:mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1.72fr)_minmax(0,0.95fr)] gap-3 sm:gap-5 items-start">
         {/* Left Column: Active Game Arena + Daily Check-in */}
-        <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
-          <div className="rounded-2xl bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10 p-3 sm:p-7 shadow-sm w-full min-w-0 overflow-hidden">
-            <div className="mb-3 pb-2.5 sm:mb-5 sm:pb-4 border-b border-[#202020]/10 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 min-w-0">
-              <div className="min-w-0 w-full">
-                <h2 className="font-serif text-base sm:text-2xl font-bold text-[#111111] dark:text-[#F8F5EF] leading-tight break-words">
+        <div className="space-y-3 sm:space-y-4 min-w-0 w-full">
+          <div className="rounded-2xl bg-white dark:bg-[#16221C] border border-[#202020]/10 dark:border-white/10 p-2.5 sm:p-4 shadow-sm w-full min-w-0 overflow-hidden">
+            <div className="mb-2.5 pb-2 border-b border-[#202020]/10 dark:border-white/10 flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" className="shrink-0" />
+                <h2 className="font-serif text-sm sm:text-lg font-bold text-[#111111] dark:text-[#F8F5EF] truncate">
                   {lang === 'en' ? currentConfig.title_en : currentConfig.title_vi}
                 </h2>
-                <p className="text-[11px] sm:text-xs text-[#202020]/70 dark:text-[#F1EFEA]/70 mt-0.5 sm:mt-1 line-clamp-2 sm:line-clamp-none break-words">
-                  {lang === 'en' ? currentConfig.subtitle_en : currentConfig.subtitle_vi}
-                </p>
+                <span className="hidden md:inline text-[11px] text-[#202020]/60 dark:text-[#F1EFEA]/60 truncate">
+                  · {lang === 'en' ? currentConfig.subtitle_en : currentConfig.subtitle_vi}
+                </span>
               </div>
-              {currentConfig.active === 0 && (
-                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-bold whitespace-nowrap self-start sm:self-auto">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{t('Đang tạm bảo trì', 'Maintenance')}</span>
+              {currentConfig.active === 0 ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-bold whitespace-nowrap shrink-0">
+                  <Lock className="w-3 h-3" />
+                  <span>{t('Bảo trì', 'Maintenance')}</span>
+                </span>
+              ) : (
+                <span className="text-[11px] font-mono font-bold text-[#8C6D32] dark:text-[#C6A667] tabular-nums whitespace-nowrap shrink-0">
+                  {activeGameIndex + 1}/{gameMetaList.length}
                 </span>
               )}
             </div>
@@ -418,6 +654,8 @@ export const PlayGamesPage: React.FC = () => {
                 remainingFreeToday={remainingFreeToday.memory ?? 0}
                 isSignedIn={Boolean(user)}
                 userPoints={userAvailablePts}
+                savedProgress={gameProgressMap.memory}
+                onSaveProgress={(p) => handleSaveGameProgress('memory', p)}
                 onPlayReal={(useExtra) => handlePlayReal('memory', useExtra)}
                 onRequireLogin={() => navigate(localePath('/account'))}
                 onDemoResult={handleDemoResult}
@@ -430,6 +668,8 @@ export const PlayGamesPage: React.FC = () => {
                 remainingFreeToday={remainingFreeToday.harvest ?? 0}
                 isSignedIn={Boolean(user)}
                 userPoints={userAvailablePts}
+                savedProgress={gameProgressMap.harvest}
+                onSaveProgress={(p) => handleSaveGameProgress('harvest', p)}
                 onPlayReal={(useExtra, score) => handlePlayReal('harvest', useExtra, score)}
                 onRequireLogin={() => navigate(localePath('/account'))}
                 onDemoResult={handleDemoResult}
@@ -442,6 +682,8 @@ export const PlayGamesPage: React.FC = () => {
                 remainingFreeToday={remainingFreeToday.blockblast ?? 0}
                 isSignedIn={Boolean(user)}
                 userPoints={userAvailablePts}
+                savedProgress={gameProgressMap.blockblast}
+                onSaveProgress={(p) => handleSaveGameProgress('blockblast', p)}
                 onPlayReal={(useExtra, score) => handlePlayReal('blockblast', useExtra, score)}
                 onRequireLogin={() => navigate(localePath('/account'))}
                 onDemoResult={handleDemoResult}
@@ -461,7 +703,30 @@ export const PlayGamesPage: React.FC = () => {
                   remainingFreeToday={remainingFreeToday.cubeaway ?? 0}
                   isSignedIn={Boolean(user)}
                   userPoints={userAvailablePts}
+                  onSaveProgress={(p) => handleSaveGameProgress('cubeaway', p)}
                   onPlayReal={(useExtra, score) => handlePlayReal('cubeaway', useExtra, score)}
+                  onRequireLogin={() => navigate(localePath('/account'))}
+                  onDemoResult={handleDemoResult}
+                />
+              </React.Suspense>
+            ) : activeGame === 'candysaga' ? (
+              <React.Suspense
+                fallback={
+                  <div className="h-[420px] rounded-2xl bg-[#12261C] text-white flex items-center justify-center text-sm font-bold">
+                    {t('Đang khởi tạo Vương Quốc Kẹo ROAR...', 'Loading ROAR Candy Saga...')}
+                  </div>
+                }
+              >
+                <CandySagaGame
+                  lang={lang}
+                  config={currentConfig}
+                  rewards={currentRewards}
+                  remainingFreeToday={remainingFreeToday.candysaga ?? 0}
+                  isSignedIn={Boolean(user)}
+                  userPoints={userAvailablePts}
+                  savedProgress={gameProgressMap.candysaga}
+                  onSaveProgress={(p) => handleSaveGameProgress('candysaga', p)}
+                  onPlayReal={(useExtra, score) => handlePlayReal('candysaga', useExtra, score)}
                   onRequireLogin={() => navigate(localePath('/account'))}
                   onDemoResult={handleDemoResult}
                 />
@@ -717,6 +982,9 @@ export const PlayGamesPage: React.FC = () => {
             </button>
 
             <div className="text-center space-y-2 sm:space-y-3">
+              <div className="flex justify-center">
+                <AdaptiveLogo variant="horizontal" surface="auto" darkTone="gold" size="2xs" />
+              </div>
               <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-[#00552B] text-[#C6A667] flex items-center justify-center mx-auto shadow-lg">
                 {resultModal.reward.reward_type === 'product_gift' ? (
                   <Gift className="w-6 h-6 sm:w-8 sm:h-8" />
